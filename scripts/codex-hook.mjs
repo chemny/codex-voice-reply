@@ -224,7 +224,7 @@ function buildSummary(message, config) {
 
   const ordered = selected.sort((a, b) => a.index - b.index).map(({ sentence }) => sentence);
   const summary = ordered.length ? ordered.join("；") : sentences.slice(0, config.maxSummarySentences).join("；");
-  return polishForSpeech(truncateText(summary, config.maxResultChars));
+  return polishForSpeech(summary); // 不截断：完整一句念完
 }
 
 function main() {
@@ -252,7 +252,8 @@ function main() {
     if (marker) {
       // 模型主动写的播报标记：直接念，最准。音色按标记语种选（与 Claude 一致）。
       log("stop", { source: "marker" });
-      speak(["text", "--text", truncateText(marker, config.maxResultChars), "--full"], resolveVoice(voices, detectLang(marker)));
+      // 不截断：整条标记念完。
+      speak(["text", "--text", marker, "--full"], resolveVoice(voices, detectLang(marker)));
     } else if (config.stopMode === "summary" && input.last_assistant_message) {
       const lang = detectLang(input.last_assistant_message);
       const voice = resolveVoice(voices, lang);
@@ -261,9 +262,8 @@ function main() {
         speak(["text", "--text", config.texts.StopEn, "--full"], voice);
       } else {
         const prefix = config.texts.StopSummaryPrefix;
-        const maxSummaryChars = Math.max(20, config.maxResultChars - [...prefix].length);
-        const summary = buildSummary(input.last_assistant_message, { ...config, maxResultChars: maxSummaryChars });
-        speak(["text", "--text", summary ? truncateText(`${prefix}${summary}`, config.maxResultChars) : config.texts.Stop, "--full"], voice);
+        const summary = buildSummary(input.last_assistant_message, config);
+        speak(["text", "--text", summary ? `${prefix}${summary}` : config.texts.Stop, "--full"], voice);
       }
     } else {
       speak(["text", "--text", config.texts.Stop, "--full"], resolveVoice(voices, "zh"));
