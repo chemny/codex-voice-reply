@@ -1,5 +1,6 @@
 ---
 name: voice-reply
+version: 1.0.0
 description: Speak a short, context-aware voice reply for agent work — an instant acknowledgement when the user submits, and a concise spoken result/answer when the turn finishes. Works for both Claude Code and Codex via their hook systems, with local Edge TTS playback. Use when adding spoken acknowledgements/announcements, reading a result aloud, or wiring voice notifications into an agent workflow.
 ---
 

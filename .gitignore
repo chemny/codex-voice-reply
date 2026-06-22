@@ -13,3 +13,7 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Publisher reports
+publish-check-report.json
+smoke-test-report.json
