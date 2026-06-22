@@ -24,6 +24,14 @@ function codexVoices() {
   };
 }
 
+// 调用方（如 Claude Code 的 claude-hook，转交摘要时）会用环境变量指定音色。
+// 这种"被借用"的情况，必须用调用方传入的音色，不能用 Codex 自己的女声——否则串声。
+const INHERITED_VOICE = process.env.VOICE_REPLY_VOICE || "";
+// 选音色：优先调用方指定（继承），否则按语种用 Codex 自己的音色。
+function pickVoice(voices, lang) {
+  return INHERITED_VOICE || resolveVoice(voices, lang);
+}
+
 const defaults = {
   enabled: true,
   start: true,
@@ -253,10 +261,10 @@ function main() {
       // 模型主动写的播报标记：直接念，最准。音色按标记语种选（与 Claude 一致）。
       log("stop", { source: "marker" });
       // 不截断：整条标记念完。
-      speak(["text", "--text", marker, "--full"], resolveVoice(voices, detectLang(marker)));
+      speak(["text", "--text", marker, "--full"], pickVoice(voices, detectLang(marker)));
     } else if (config.stopMode === "summary" && input.last_assistant_message) {
       const lang = detectLang(input.last_assistant_message);
-      const voice = resolveVoice(voices, lang);
+      const voice = pickVoice(voices, lang);
       if (lang === "en") {
         // 英文：buildSummary 是中文调校的（会加中文前缀、删空格），跳过它，播干净的英文固定句。
         speak(["text", "--text", config.texts.StopEn, "--full"], voice);
@@ -266,7 +274,7 @@ function main() {
         speak(["text", "--text", summary ? `${prefix}${summary}` : config.texts.Stop, "--full"], voice);
       }
     } else {
-      speak(["text", "--text", config.texts.Stop, "--full"], resolveVoice(voices, "zh"));
+      speak(["text", "--text", config.texts.Stop, "--full"], pickVoice(voices, "zh"));
     }
     return;
   }
