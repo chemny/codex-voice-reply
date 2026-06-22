@@ -120,6 +120,15 @@ Rule: end every reply with one line — <<voice: status + core info + next step>
 (target <=40 chars; ear-friendly; no code/paths/secrets).
 Decision-first: if the result needs the user to decide/choose/confirm/answer,
 lead with what they must do, e.g. <<voice: 要你定：现在能不能重启？>>.
-
-Done.
 EOF
+
+# 7) Self-check + audible confirmation ----------------------------------------
+echo
+echo "Verifying install..."
+node "$SKILL_DIR/scripts/doctor.mjs" || true
+echo
+echo "Playing a test sound — you should hear it:"
+node "$SKILL_DIR/scripts/speak.mjs" text --text "安装完成，听到这句话说明声音正常。Setup complete." --full \
+  || echo "  Test sound FAILED — see the doctor output above for the cause."
+echo
+echo "Done. Restart your agent session for the hooks to take effect."

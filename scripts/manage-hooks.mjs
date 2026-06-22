@@ -39,19 +39,19 @@ for (const t of targets) {
   let changed = false;
 
   for (const ev of EVENTS) {
-    const list = Array.isArray(data.hooks[ev]) ? data.hooks[ev] : [];
-    const has = JSON.stringify(list).includes(t.script);
-
-    if (mode === "add" && !has) {
-      list.push({ hooks: [{ type: "command", command: `node "${t.script}"`, timeout: 60 }] });
-      data.hooks[ev] = list;
-      changed = true;
-    } else if (mode === "remove" && has) {
-      const filtered = list.filter((group) => !JSON.stringify(group).includes(t.script));
-      if (filtered.length) data.hooks[ev] = filtered;
-      else delete data.hooks[ev];
-      changed = true;
+    const before = JSON.stringify(data.hooks[ev] ?? null);
+    // Always drop any prior voice-reply entry first (self-heals an old/broken format),
+    // then for "add" append a fresh one. Command is UNQUOTED to match what the agents'
+    // hook runners actually execute (a quoted path is taken literally and fails silently).
+    const list = (Array.isArray(data.hooks[ev]) ? data.hooks[ev] : []).filter(
+      (group) => !JSON.stringify(group).includes(t.script),
+    );
+    if (mode === "add") {
+      list.push({ hooks: [{ type: "command", command: `node ${t.script}`, timeout: 60 }] });
     }
+    if (list.length) data.hooks[ev] = list;
+    else delete data.hooks[ev];
+    if (JSON.stringify(data.hooks[ev] ?? null) !== before) changed = true;
   }
 
   if (!changed) {

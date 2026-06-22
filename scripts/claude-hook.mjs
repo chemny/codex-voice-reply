@@ -95,8 +95,16 @@ function extractVoiceMarker(text) {
   let last = "";
   while ((match = re.exec(text)) !== null) last = match[1];
   const cleaned = last.replace(/\s+/g, " ").trim();
+  if (!isUsefulVoiceText(cleaned)) return "";
   if (cleaned.length <= MARKER_MAX_CHARS) return cleaned;
   return [...cleaned].slice(0, MARKER_MAX_CHARS).join("").replace(/[，。,.!?！？、\s]+$/u, "") + "。";
+}
+
+function isUsefulVoiceText(text) {
+  const compact = String(text || "").replace(/[，。,.!?！？、；;:：'"“”‘’()\[\]{}<>《》…\-\s]/g, "");
+  if (!compact) return false;
+  if (/^[.。…]+$/.test(text.trim())) return false;
+  return /[\u4e00-\u9fff]{2,}/.test(compact) || /[A-Za-z0-9]{3,}/.test(compact);
 }
 
 // 直接朗读标记内容，绕过打分逻辑。音色按标记文字的语种选（中文男声 / 英文男声）。

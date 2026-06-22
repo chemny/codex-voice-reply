@@ -149,6 +149,23 @@ per message; lock the whole session with `"lang": "zh"` or `"en"` in
 `~/.voice-reply/hooks.json`. Add more languages by editing the packs in
 `scripts/opening.mjs`.
 
+## No sound?
+
+Run the doctor first — it pinpoints which link in the chain is broken:
+
+```bash
+node scripts/doctor.mjs
+```
+
+Common causes:
+
+- **Didn't restart the agent** — hooks load at session start, so restart Claude Code / Codex after install.
+- **No audio player** (Linux/Windows) — install `ffplay` (ffmpeg), `mpv`, or `mpg123`; macOS ships `afplay`.
+- **Hooks not registered, or the command path got quoted** — re-run `./setup.sh`; it rewrites the hook in the correct (unquoted) form.
+- **edge-tts not installed** — re-run `./setup.sh` (needs python3 + network).
+
+`setup.sh` ends by running the doctor and playing a test sound — if you hear it, audio works.
+
 ## License
 
 [MIT](LICENSE)

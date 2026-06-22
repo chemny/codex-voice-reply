@@ -8,7 +8,7 @@ ok()   { echo "  ok   $1"; }
 bad()  { echo "  FAIL $1"; fail=1; }
 
 echo "1. syntax"
-for f in speak opening claude-hook codex-hook codex-notify manage-hooks; do
+for f in speak opening claude-hook codex-hook codex-notify manage-hooks doctor; do
   if node --check "$S/$f.mjs" 2>/dev/null; then ok "$f.mjs"; else bad "$f.mjs"; fi
 done
 

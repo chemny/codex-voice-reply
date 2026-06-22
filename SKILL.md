@@ -95,3 +95,7 @@ refresh the cache.
 ## Dependency
 
 `speak.mjs` needs `edge-tts` (installed into `.venv` by `setup.sh`, or on PATH) and an audio player: `afplay` on macOS, or `ffplay`/`mpv`/`mpg123` on Linux/Windows. Edge TTS requires network access (Microsoft endpoint). Run `setup.sh` to install everything; it asks before changing your hook configs.
+
+## Troubleshooting (no sound)
+
+Run `node scripts/doctor.mjs` — it checks every link (node, edge-tts/venv, audio player, config, cache, hook registration) and prints what to fix. Common causes: the agent wasn't restarted after install (hooks load at session start); no audio player on Linux/Windows (install ffplay/mpv/mpg123); hooks unregistered or the command path got quoted (re-run `setup.sh` to rewrite it unquoted); edge-tts not installed. The hook command must be unquoted (`node /path/...`) — a quoted path is taken literally by some hook runners and fails silently. `setup.sh` ends by running the doctor and playing a test sound.

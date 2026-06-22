@@ -124,6 +124,23 @@ voice-reply/
 
 内置**中文 + 英文**两套开场词与分类规则，按每条消息的语种自动切换；想锁定整段语言，在 `~/.voice-reply/hooks.json` 设 `"lang": "zh"` 或 `"en"`。加更多语言可编辑 `scripts/opening.mjs` 里的语言包。
 
+## 没声音？
+
+先跑自检,它会逐项告诉你哪一环断了：
+
+```bash
+node scripts/doctor.mjs
+```
+
+常见原因：
+
+- **装完没重启 agent** —— hook 在会话启动时加载,改完必须重启 Claude Code / Codex。
+- **没装播放器**(Linux/Windows)—— 装 `ffplay`(ffmpeg)、`mpv` 或 `mpg123`;macOS 自带 `afplay`。
+- **hook 没注册,或命令路径被加了引号** —— 重跑 `./setup.sh`,会把 hook 重新写成正确(无引号)格式。
+- **edge-tts 没装上** —— 重跑 `./setup.sh`(需要 python3 + 网络)。
+
+`setup.sh` 结尾会自动跑一次 doctor 并播一句测试音,听到就说明声音正常。
+
 ## 协议
 
 [MIT](LICENSE)

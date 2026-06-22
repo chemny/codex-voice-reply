@@ -52,7 +52,15 @@ function extractVoiceMarker(text) {
   let match;
   let last = "";
   while ((match = re.exec(text)) !== null) last = match[1];
-  return last.replace(/\s+/g, " ").trim();
+  const cleaned = last.replace(/\s+/g, " ").trim();
+  return isUsefulVoiceText(cleaned) ? cleaned : "";
+}
+
+function isUsefulVoiceText(text) {
+  const compact = String(text || "").replace(/[，。,.!?！？、；;:：'"“”‘’()\[\]{}<>《》…\-\s]/g, "");
+  if (!compact) return false;
+  if (/^[.。…]+$/.test(text.trim())) return false;
+  return /[\u4e00-\u9fff]{2,}/.test(compact) || /[A-Za-z0-9]{3,}/.test(compact);
 }
 
 function readStdinJson() {
@@ -130,6 +138,7 @@ function redactSensitiveText(text) {
 
 function stripMarkdown(text) {
   return redactSensitiveText(text)
+    .replace(/<<\s*voice\s*:\s*[\s\S]*?>>/gi, " ")
     .replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/g, " ")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
