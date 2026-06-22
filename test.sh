@@ -7,6 +7,15 @@ fail=0
 ok()   { echo "  ok   $1"; }
 bad()  { echo "  FAIL $1"; fail=1; }
 
+# Run under an isolated HOME with a clean config so results don't depend on (or
+# pollute) the user's real ~/.voice-reply — e.g. a locked "lang" would otherwise
+# skew the language-detection checks.
+TESTHOME="$(mktemp -d)"
+mkdir -p "$TESTHOME/.voice-reply"
+printf '{}' > "$TESTHOME/.voice-reply/hooks.json"
+export HOME="$TESTHOME"
+trap 'rm -rf "$TESTHOME"' EXIT
+
 echo "1. syntax"
 for f in speak opening claude-hook codex-hook codex-notify manage-hooks manage-notify doctor; do
   if node --check "$S/$f.mjs" 2>/dev/null; then ok "$f.mjs"; else bad "$f.mjs"; fi
