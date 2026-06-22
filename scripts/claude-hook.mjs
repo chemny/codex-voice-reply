@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { playOpening, playDetached } from "./opening.mjs";
+import { playOpening, playDetached, detectLang, resolveVoice } from "./opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const codexHook = join(__dirname, "codex-hook.mjs");
@@ -29,9 +29,11 @@ function log(event, extra) {
   }
 }
 
-// Claude Code 专用音色（男声）。Codex 不经过本脚本，仍用它自己的女声。
-// 想换 Claude 的声音，只改这一行即可，例如 zh-CN-YunyangNeural / zh-CN-YunjianNeural。
-const CLAUDE_VOICE = "zh-CN-YunxiNeural";
+// Claude Code 专用音色：中文男声 + 英文男声（保持同一"性别人设"，听感一致）。
+// 按消息/回答的语种自动选用。想换声音改这两行即可。
+const CLAUDE_VOICE_ZH = "zh-CN-YunxiNeural";
+const CLAUDE_VOICE_EN = "en-US-GuyNeural";
+const CLAUDE_VOICES = { zh: CLAUDE_VOICE_ZH, en: CLAUDE_VOICE_EN };
 
 // 回答里"为耳朵写的"播报摘要标记：<<voice: 已完成…，记得…>>
 // 优先朗读它；抓不到再退回 codex-hook 的关键词打分兜底。
@@ -97,22 +99,24 @@ function extractVoiceMarker(text) {
   return [...cleaned].slice(0, MARKER_MAX_CHARS).join("").replace(/[，。,.!?！？、\s]+$/u, "") + "。";
 }
 
-// 直接朗读标记内容，绕过打分逻辑，仍注入 Claude 专用音色。后台异步，不阻塞。
+// 直接朗读标记内容，绕过打分逻辑。音色按标记文字的语种选（中文男声 / 英文男声）。
 function speakDirect(text) {
+  const voice = resolveVoice(CLAUDE_VOICES, detectLang(text));
   playDetached(process.execPath, [speakScript, "text", "--text", text, "--full"], {
-    VOICE_REPLY_VOICE: CLAUDE_VOICE,
+    VOICE_REPLY_VOICE: voice,
   });
 }
 
 // 把转换后的 Codex 形态 payload 交给 codex-hook.mjs（它负责摘要+朗读）。
-function delegate(payload) {
+// 音色按回答文字的语种选，一路通过环境变量传到 speak.mjs。
+function delegate(payload, text) {
+  const voice = resolveVoice(CLAUDE_VOICES, detectLang(text));
   spawnSync(process.execPath, [codexHook], {
     input: JSON.stringify(payload),
     encoding: "utf8",
     stdio: ["pipe", "ignore", "ignore"],
     timeout: 30000,
-    // 通过环境变量把 Claude 专用音色一路传到 speak.mjs。
-    env: { ...process.env, VOICE_REPLY_VOICE: CLAUDE_VOICE },
+    env: { ...process.env, VOICE_REPLY_VOICE: voice },
   });
 }
 
@@ -121,9 +125,9 @@ function main() {
   const event = input.hook_event_name || process.argv[2] || "";
 
   if (event === "UserPromptSubmit") {
-    // 按你发的原文粗判类型，播一句即时回应（共用 opening.mjs 规则，男声、后台、缓存）。
-    const cue = playOpening(input, CLAUDE_VOICE);
-    log("open", { cue: cue.key });
+    // 按你发的原文粗判语种 + 类型，播一句即时回应（共用 opening.mjs 规则，后台、缓存）。
+    const cue = playOpening(input, CLAUDE_VOICES);
+    log("open", { cue: cue.key, lang: cue.lang });
     return;
   }
 
@@ -138,7 +142,7 @@ function main() {
     }
     // 没写标记时退回关键词打分兜底。
     log("stop", { source: "fallback" });
-    delegate({ hook_event_name: "Stop", last_assistant_message: message });
+    delegate({ hook_event_name: "Stop", last_assistant_message: message }, message);
     return;
   }
 }

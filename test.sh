@@ -26,11 +26,15 @@ out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"已完成
   | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
 echo "$out" | grep -q 'announceArgs' && ok "scoring fallback" || bad "scoring fallback"
 
-echo "5. shared opening rule (opening.mjs, used by both agents)"
-oc() { node --input-type=module -e "import {openingCue} from '$S/opening.mjs'; console.log(openingCue(process.argv[1]).key)" "$1"; }
-[ "$(oc '帮我改一下')"   = "instruction" ] && ok "classify instruction" || bad "classify instruction"
-[ "$(oc '这样对吗')"     = "question" ]    && ok "classify question"    || bad "classify question"
-[ "$(oc '我跟你说个事')" = "other" ]       && ok "classify other"       || bad "classify other"
+echo "5. shared opening rule + language detection (opening.mjs)"
+# prints "<lang> <key>" for a prompt
+oc() { node --input-type=module -e "import {detectLang,openingCue} from '$S/opening.mjs'; const l=detectLang(process.argv[1]); console.log(l, openingCue(process.argv[1], l).key)" "$1"; }
+[ "$(oc '帮我改一下')"        = "zh instruction" ] && ok "zh instruction" || bad "zh instruction"
+[ "$(oc '这样对吗')"          = "zh question" ]    && ok "zh question"    || bad "zh question"
+[ "$(oc '我跟你说个事')"      = "zh other" ]       && ok "zh other"       || bad "zh other"
+[ "$(oc 'fix this bug')"      = "en instruction" ] && ok "en instruction" || bad "en instruction"
+[ "$(oc 'is this right?')"    = "en question" ]    && ok "en question"    || bad "en question"
+[ "$(oc 'just an FYI')"       = "en other" ]       && ok "en other"       || bad "en other"
 
 echo
 [ "$fail" = "0" ] && echo "ALL PASS" || echo "SOME FAILED"

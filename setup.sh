@@ -42,11 +42,12 @@ if [ ! -f "$VOICE_HOME/config.json" ]; then
   cat > "$VOICE_HOME/config.json" <<'JSON'
 {
   "voice": "zh-CN-XiaoxiaoNeural",
+  "voiceEn": "en-US-AriaNeural",
   "rate": "+0%",
   "volume": "+0%"
 }
 JSON
-  echo "  wrote config.json (Codex voice: female XiaoXiao)"
+  echo "  wrote config.json (Codex voices: zh XiaoXiao / en Aria)"
 fi
 if [ ! -f "$VOICE_HOME/hooks.json" ]; then
   cat > "$VOICE_HOME/hooks.json" <<'JSON'
@@ -68,21 +69,28 @@ JSON
   echo "  wrote hooks.json"
 fi
 
-# 4) Pre-generate opening-cue cache for both agent voices --------------------
-# The opening rule is shared (scripts/opening.mjs); only the voice differs:
-# Claude = CLAUDE_VOICE in claude-hook.mjs, Codex = "voice" in config.json.
-CLAUDE_VOICE="$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");const m=s.match(/CLAUDE_VOICE = "([^"]+)"/);process.stdout.write(m?m[1]:"zh-CN-YunxiNeural")' "$SKILL_DIR/scripts/claude-hook.mjs")"
-CODEX_VOICE="$(node -e 'try{const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(c.voice||"zh-CN-XiaoxiaoNeural")}catch{process.stdout.write("zh-CN-XiaoxiaoNeural")}' "$VOICE_HOME/config.json")"
-echo "Generating opening cache (Claude: $CLAUDE_VOICE, Codex: $CODEX_VOICE)..."
+# 4) Pre-generate opening-cue cache for each agent's voices (zh + en) --------
+# The opening rule is shared (scripts/opening.mjs); only the voice differs.
+# Chinese voices get the Chinese phrases, English voices the English phrases.
+CLAUDE_VOICE_ZH="$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");const m=s.match(/CLAUDE_VOICE_ZH = "([^"]+)"/);process.stdout.write(m?m[1]:"zh-CN-YunxiNeural")' "$SKILL_DIR/scripts/claude-hook.mjs")"
+CLAUDE_VOICE_EN="$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");const m=s.match(/CLAUDE_VOICE_EN = "([^"]+)"/);process.stdout.write(m?m[1]:"en-US-GuyNeural")' "$SKILL_DIR/scripts/claude-hook.mjs")"
+CODEX_VOICE_ZH="$(node -e 'try{const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(c.voice||"zh-CN-XiaoxiaoNeural")}catch{process.stdout.write("zh-CN-XiaoxiaoNeural")}' "$VOICE_HOME/config.json")"
+CODEX_VOICE_EN="$(node -e 'try{const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(c.voiceEn||"en-US-AriaNeural")}catch{process.stdout.write("en-US-AriaNeural")}' "$VOICE_HOME/config.json")"
+echo "Generating opening cache (zh: $CLAUDE_VOICE_ZH/$CODEX_VOICE_ZH, en: $CLAUDE_VOICE_EN/$CODEX_VOICE_EN)..."
 gen() { # voice type text
   local out="$VOICE_HOME/cache/opening-$2-$1.mp3"
   [ -f "$out" ] && return 0
   "$PY" -m edge_tts --voice "$1" --text "$3" --write-media "$out" && echo "  cached opening-$2 ($1)"
 }
-for V in "$CLAUDE_VOICE" "$CODEX_VOICE"; do
+for V in "$CLAUDE_VOICE_ZH" "$CODEX_VOICE_ZH"; do
   gen "$V" question    "我看看"
   gen "$V" instruction "好，这就做"
   gen "$V" other       "收到"
+done
+for V in "$CLAUDE_VOICE_EN" "$CODEX_VOICE_EN"; do
+  gen "$V" question    "Let me look"
+  gen "$V" instruction "On it"
+  gen "$V" other       "Got it"
 done
 
 # 5) Register hooks (asks first) --------------------------------------------
@@ -110,6 +118,8 @@ the model writes a spoken summary each turn.
 
 Rule: end every reply with one line — <<voice: status + core info + next step>>
 (target <=40 chars; ear-friendly; no code/paths/secrets).
+Decision-first: if the result needs the user to decide/choose/confirm/answer,
+lead with what they must do, e.g. <<voice: 要你定：现在能不能重启？>>.
 
 Done.
 EOF

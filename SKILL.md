@@ -1,7 +1,7 @@
 ---
 name: voice-reply
 version: 1.0.0
-description: Speak a short, context-aware voice reply for agent work — an instant acknowledgement when the user submits, and a concise spoken result/answer when the turn finishes. Works for both Claude Code and Codex via their hook systems, with local Edge TTS playback. Use when adding spoken acknowledgements/announcements, reading a result aloud, or wiring voice notifications into an agent workflow.
+description: Speak a short, context-aware voice reply for agent work — an instant acknowledgement when the user submits, and a decision-first spoken result when the turn finishes (it leads with the choice the user must make, turning a one-way announcement into a back-and-forth). Auto-switches between Chinese and English per message. Works for both Claude Code and Codex via their hook systems, with local Edge TTS playback. Use when adding spoken acknowledgements/announcements, reading a result aloud, or wiring voice notifications into an agent workflow.
 ---
 
 # Voice Reply
@@ -10,8 +10,8 @@ description: Speak a short, context-aware voice reply for agent work — an inst
 
 Voice Reply gives a coding agent a short spoken voice:
 
-- **Opening cue** — the instant the user submits, a hook plays a quick, type-aware acknowledgement (question → "我看看", instruction → "好，这就做", uncertain → "收到"). It fires before the model has read the message, so it can only acknowledge, never answer.
-- **Result reply** — when the turn finishes, the model's own one-line summary (status + core info + next action) is spoken. This is the "real" reply and can contain the actual answer (对/错, a fact, "改好了，记得重启").
+- **Opening cue** — the instant the user submits, a hook plays a quick acknowledgement matched to the message's language and type (zh: 我看看 / 好，这就做 / 收到; en: Let me look / On it / Got it). It fires before the model has read the message, so it can only acknowledge, never answer.
+- **Result reply** — when the turn finishes, the model's own one-line summary is spoken: a conclusion, or **the decision the user must make (decision-first)** so they can answer and keep the loop going. It can contain the actual answer (对/错, a fact, "改好了，记得重启"), in a voice matched to the reply's language.
 
 Playback is local Edge TTS + `afplay`, fired in the background so hooks return in ~200ms and never block the agent.
 
@@ -74,14 +74,16 @@ The model **targets ≤40 chars** (a guideline for keeping it ear-friendly); the
 
 ## Per-agent voice
 
-Claude Code speaks **male** (`zh-CN-YunxiNeural`, injected by `claude-hook.mjs` via `VOICE_REPLY_VOICE`); Codex speaks **female** (`zh-CN-XiaoxiaoNeural`, from `~/.voice-reply/config.json`). Change Claude's voice at the top of `claude-hook.mjs`; change Codex's in `config.json`.
+Claude Code speaks **male** and Codex speaks **female**, so you can tell them apart by ear. Each has a Chinese and an English voice, picked automatically by the message/reply language: Claude `CLAUDE_VOICE_ZH` / `CLAUDE_VOICE_EN` at the top of `claude-hook.mjs` (default zh-CN-YunxiNeural / en-US-GuyNeural); Codex `voice` / `voiceEn` in `~/.voice-reply/config.json` (default zh-CN-XiaoxiaoNeural / en-US-AriaNeural).
 
 ## Opening cue
 
-The opening rule lives in `scripts/opening.mjs` and is **shared by both agents**:
-it classifies the submitted prompt (question → "我看看", instruction → "好，这就做",
-uncertain → "收到") and plays the matching phrase in that agent's voice. Edit the
-classifier or phrases once and both Claude and Codex pick it up.
+The opening rule lives in `scripts/opening.mjs` and is **shared by both agents and
+both languages**: it detects the message's language (CJK → Chinese, else English;
+lock with `"lang": "zh"|"en"` in `~/.voice-reply/hooks.json`), classifies it
+(question / instruction / other), and plays the matching phrase in that agent's
+voice for that language. Chinese: 我看看 / 好，这就做 / 收到. English: Let me look /
+On it / Got it. Edit the language packs once and both Claude and Codex pick it up.
 
 The phrases are pre-synthesized to `~/.voice-reply/cache/opening-<type>-<voice>.mp3`
 so the opening plays instantly and offline (live synthesis would add ~5s). The

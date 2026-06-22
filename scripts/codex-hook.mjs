@@ -4,20 +4,24 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { playOpening } from "./opening.mjs";
+import { playOpening, detectLang, resolveVoice } from "./opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "speak.mjs");
 const logPath = join(homedir(), ".voice-reply", "hook.log");
 
-// Codex 的音色（来自 config.json，默认女声），用于挑对应的开场缓存。
-function codexVoice() {
+// Codex 的音色：中文女声 + 英文女声（config.json 的 voice / voiceEn），按语种自动选用。
+function codexVoices() {
+  let cfg = {};
   try {
-    const cfg = JSON.parse(readFileSync(join(homedir(), ".voice-reply", "config.json"), "utf8"));
-    return cfg.voice || "zh-CN-XiaoxiaoNeural";
+    cfg = JSON.parse(readFileSync(join(homedir(), ".voice-reply", "config.json"), "utf8"));
   } catch {
-    return "zh-CN-XiaoxiaoNeural";
+    cfg = {};
   }
+  return {
+    zh: cfg.voice || "zh-CN-XiaoxiaoNeural",
+    en: cfg.voiceEn || "en-US-AriaNeural",
+  };
 }
 
 const defaults = {
@@ -96,16 +100,17 @@ function truncateText(text, maxChars) {
   return [...normalized].slice(0, maxChars).join("").replace(/[，。,.!?！？、\s]+$/u, "") + "。";
 }
 
-function speak(args) {
-  log("speak", { args });
+function speak(args, voice) {
+  log("speak", { args, voice });
   if (process.env.VOICE_REPLY_DRY_RUN === "1") {
-    process.stdout.write(JSON.stringify({ announceArgs: args }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ announceArgs: args, voice }, null, 2) + "\n");
     return;
   }
   spawnSync(process.execPath, [speakScript, ...args], {
     encoding: "utf8",
     stdio: ["ignore", "ignore", "ignore"],
     timeout: 30000,
+    env: voice ? { ...process.env, VOICE_REPLY_VOICE: voice } : process.env,
   });
 }
 
@@ -226,29 +231,31 @@ function main() {
   const event = input.hook_event_name || process.argv[2] || "";
   log("hook", { hook_event_name: event, input_keys: Object.keys(input), has_last_assistant_message: Boolean(input.last_assistant_message) });
   if (event === "UserPromptSubmit" && config.start) {
-    // 走和 Claude 一样的通用开场规则（opening.mjs）：按输入类型分类，女声、后台、缓存。
-    const cue = playOpening(input, codexVoice());
-    log("open", { cue: cue.key });
+    // 走和 Claude 一样的通用开场规则（opening.mjs）：按语种 + 类型分类，后台、缓存。
+    const cue = playOpening(input, codexVoices());
+    log("open", { cue: cue.key, lang: cue.lang });
     return;
   }
 
   if (event === "Stop" && config.stop) {
+    const voices = codexVoices();
     const marker = config.stopMode === "summary" ? extractVoiceMarker(input.last_assistant_message) : "";
     if (marker) {
-      // 模型主动写的播报标记：直接念，最准（与 Claude 的 <<voice:>> 机制一致）。
+      // 模型主动写的播报标记：直接念，最准。音色按标记语种选（与 Claude 一致）。
       log("stop", { source: "marker" });
-      speak(["text", "--text", truncateText(marker, config.maxResultChars), "--full"]);
+      speak(["text", "--text", truncateText(marker, config.maxResultChars), "--full"], resolveVoice(voices, detectLang(marker)));
     } else if (config.stopMode === "summary" && input.last_assistant_message) {
       const prefix = config.texts.StopSummaryPrefix;
       const maxSummaryChars = Math.max(20, config.maxResultChars - [...prefix].length);
       const summary = buildSummary(input.last_assistant_message, { ...config, maxResultChars: maxSummaryChars });
+      const voice = resolveVoice(voices, detectLang(input.last_assistant_message));
       if (summary) {
-        speak(["text", "--text", truncateText(`${prefix}${summary}`, config.maxResultChars), "--full"]);
+        speak(["text", "--text", truncateText(`${prefix}${summary}`, config.maxResultChars), "--full"], voice);
       } else {
-        speak(["text", "--text", config.texts.Stop, "--full"]);
+        speak(["text", "--text", config.texts.Stop, "--full"], voice);
       }
     } else {
-      speak(["text", "--text", config.texts.Stop, "--full"]);
+      speak(["text", "--text", config.texts.Stop, "--full"], resolveVoice(voices, "zh"));
     }
     return;
   }

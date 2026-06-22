@@ -2,14 +2,17 @@
 
 [中文](./README.md) | English
 
-Voice Reply gives your coding agent a short **spoken voice** — an instant
-acknowledgement the moment you hit enter, and a concise spoken result when it
-finishes. It works with **Claude Code** and **Codex**, on macOS / Linux /
-Windows, using local [Edge TTS](https://github.com/rany2/edge-tts) playback.
+**Talk with your agent by voice — stop watching the screen.**
 
-It supports a **type-aware opening cue**, a **model-authored result reply**, and
-**per-agent voices**, plus one-command setup, cross-platform playback, and
-offline sub-second cues.
+Voice Reply makes your coding agent more than a one-way announcer: it answers the
+moment you speak, and when it finishes a step it tells you the **decision it needs
+from you**. You reply, it continues — a back-and-forth, so your eyes are free but
+you stay in control.
+
+Works with **Claude Code** and **Codex**, **auto-switches between Chinese and
+English per message**, with an instant opening cue, a decision-first result reply,
+per-agent voices, one-command setup, cross-platform playback (macOS / Linux /
+Windows), and offline cues via local [Edge TTS](https://github.com/rany2/edge-tts).
 
 ## Who Is This For?
 
@@ -23,14 +26,16 @@ This skill is designed for:
 
 Two spoken moments per turn:
 
-- **Opening cue** — the instant you submit, a hook plays a quick, type-aware
-  acknowledgement: a question → *"我看看"*, an instruction → *"好，这就做"*,
-  anything unclear → *"收到"*. It fires *before* the model has read your message,
-  so it only acknowledges — it never pretends to answer. The cues are
-  pre-synthesized and cached, so they play offline in under a second.
-- **Result reply** — when the turn finishes, the model's own one-line summary
-  (status + key info + next step) is spoken. This is the *real* reply and can
-  carry the actual answer (对/错, a fact, "改好了，记得重启").
+- **Opening cue** — the instant you submit, a hook plays a quick acknowledgement
+  matched to your message's **language and type**: in Chinese *我看看 / 好，这就做 /
+  收到*, in English *Let me look / On it / Got it*. It fires *before* the model
+  reads your message, so it only acknowledges — never pretends to answer.
+  Pre-synthesized and cached, so it plays offline in under a second.
+- **Result reply** — when the turn finishes, the model's one-line reply is spoken:
+  a conclusion, **or the decision it needs from you (decision-first)**. You answer
+  and the loop continues — turning a one-way announcement into a back-and-forth. It
+  can carry the real answer (对/错, a number, "restart to apply"), in a voice matched
+  to the reply's language.
 
 The intelligence lives in the model, not the script: the model ends each reply
 with a `<<voice: ...>>` line, and the hook simply extracts and speaks it. If the
@@ -40,10 +45,11 @@ line is missing, a keyword-scoring fallback summarizes the last message.
 
 | Capability | Input | Output |
 |---|---|---|
-| Instant opening cue | classify the prompt (question / instruction / other) | cached audio, offline, <1s, non-blocking |
-| Result reply | model's `<<voice:>>` marker, keyword scoring as fallback | one line: status + key info + next step |
-| Per-agent voice | Claude male, Codex female | tell which agent is speaking by ear |
-| Shared opening rule | single source in `scripts/opening.mjs` | edit once, both agents update |
+| Instant opening cue | classify by language + type | cached audio, offline, <1s, non-blocking |
+| Decision-first result | model's `<<voice:>>` marker, scoring fallback | a conclusion **or the choice you must make**, ready to answer |
+| Auto language switch | detect each message's language (lockable) | Chinese phrases + voice for Chinese, English for English |
+| Per-agent voice | Claude male, Codex female (each zh / en) | tell which agent is speaking by ear |
+| Single source of truth | `scripts/opening.mjs` | edit once — both agents, both languages |
 
 ## Platform Compatibility
 
@@ -138,8 +144,10 @@ Runtime data lives in `~/.voice-reply/`: `config.json` (voice/rate/volume),
 - An audio player: `afplay` on macOS, or `ffplay` / `mpv` / `mpg123` on Linux/Windows
 - Network access ([edge-tts](https://github.com/rany2/edge-tts) uses Microsoft's endpoint)
 
-The opening classifier and default phrases are **Chinese**; edit the regexes and
-phrases in `scripts/opening.mjs` for other languages.
+Ships with **Chinese + English** opening phrases and classifiers, auto-selected
+per message; lock the whole session with `"lang": "zh"` or `"en"` in
+`~/.voice-reply/hooks.json`. Add more languages by editing the packs in
+`scripts/opening.mjs`.
 
 ## License
 
