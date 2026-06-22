@@ -82,10 +82,10 @@ Claude Code speaks **male** (`zh-CN-YunxiNeural`) and Codex speaks **female**
 - The `<<voice: ...>>` marker is **visible in your transcript** — that's how the
   hook reads it.
 - Edge TTS needs **network**; only the cached opening cues work offline.
-- Codex's opening cue plays a **fixed word** (`收到`), not Claude's type-aware
-  cue — Codex's hook has no classifier. Toggle it with `start` in
-  `~/.voice-reply/hooks.json`. Give Codex the marker rule in `AGENTS.md` to get
-  the same accurate result reply as Claude.
+- Both agents share the **same opening rule** (`scripts/opening.mjs`) and the
+  same `<<voice:>>` result mechanism — only the voice differs. Toggle Codex's
+  opening cue with `start` in `~/.voice-reply/hooks.json`, and give Codex the
+  marker rule in `AGENTS.md` so it writes the result line like Claude does.
 
 ## Test / Uninstall
 

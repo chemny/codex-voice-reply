@@ -24,8 +24,9 @@ voice-reply/
   test.sh              # dry-run regression checks
   scripts/
     speak.mjs          # core: text → Edge TTS mp3 → cross-platform player
-    claude-hook.mjs    # Claude Code hook entry (opening cue + result marker)
-    codex-hook.mjs     # Codex hook entry (opening + keyword-scored summary)
+    opening.mjs        # shared opening-cue rule (classifier + cached playback)
+    claude-hook.mjs    # Claude Code hook entry (opening + result marker)
+    codex-hook.mjs     # Codex hook entry (opening + result marker, scored fallback)
     codex-notify.mjs   # Codex `notify` fallback (coarse turn-ended)
   agents/openai.yaml
   .venv/               # created by setup.sh, gitignored
@@ -70,9 +71,18 @@ The model **targets ≤40 chars** (a guideline for keeping it ear-friendly); the
 
 Claude Code speaks **male** (`zh-CN-YunxiNeural`, injected by `claude-hook.mjs` via `VOICE_REPLY_VOICE`); Codex speaks **female** (`zh-CN-XiaoxiaoNeural`, from `~/.voice-reply/config.json`). Change Claude's voice at the top of `claude-hook.mjs`; change Codex's in `config.json`.
 
-## Opening cue cache
+## Opening cue
 
-The three fixed opening phrases are pre-synthesized to `~/.voice-reply/cache/opening-<type>-<voice>.mp3` so the opening plays instantly and offline (live synthesis would add ~5s). The filename includes the voice, so changing `CLAUDE_VOICE` never replays the old voice — it falls back to live synthesis in the new voice until you re-run `setup.sh` to refresh the cache.
+The opening rule lives in `scripts/opening.mjs` and is **shared by both agents**:
+it classifies the submitted prompt (question → "我看看", instruction → "好，这就做",
+uncertain → "收到") and plays the matching phrase in that agent's voice. Edit the
+classifier or phrases once and both Claude and Codex pick it up.
+
+The phrases are pre-synthesized to `~/.voice-reply/cache/opening-<type>-<voice>.mp3`
+so the opening plays instantly and offline (live synthesis would add ~5s). The
+filename includes the voice, so changing a voice never replays the old one — it
+falls back to live synthesis in the new voice until you re-run `setup.sh` to
+refresh the cache.
 
 ## Dependency
 
