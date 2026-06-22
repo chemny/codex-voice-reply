@@ -71,5 +71,15 @@ function checkHooks(label, file, scriptName) {
 checkHooks("Claude Code", join(HOME, ".claude", "settings.json"), "claude-hook.mjs");
 checkHooks("Codex", join(HOME, ".codex", "hooks.json"), "codex-hook.mjs");
 
+// Optional Codex notify fallback (for builds without hooks) — only reported if wired.
+const codexToml = join(HOME, ".codex", "config.toml");
+if (existsSync(codexToml)) {
+  try {
+    if (/^notify\s*=.*codex-notify\.mjs/m.test(readFileSync(codexToml, "utf8"))) {
+      PASS("Codex notify fallback: wired (completion-only)");
+    }
+  } catch { /* ignore */ }
+}
+
 console.log(`\n${fails ? `✗ ${fails} problem(s)` : warns ? `⚠ ${warns} warning(s)` : "✓ all good"} — restart your agent session after any change.`);
 process.exit(fails ? 1 : 0);

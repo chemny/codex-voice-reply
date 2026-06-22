@@ -28,7 +28,10 @@ voice-reply/
     opening.mjs        # shared opening-cue rule (classifier + cached playback)
     claude-hook.mjs    # Claude Code hook entry (opening + result marker)
     codex-hook.mjs     # Codex hook entry (opening + result marker, scored fallback)
-    codex-notify.mjs   # Codex `notify` fallback (coarse turn-ended)
+    codex-notify.mjs   # Codex `notify` fallback for builds without hooks (completion-only)
+    manage-hooks.mjs   # register/remove hooks in settings.json / hooks.json
+    manage-notify.mjs  # wire/unwire the Codex notify fallback in config.toml
+    doctor.mjs         # self-check: node/edge-tts/player/config/cache/hooks
   agents/openai.yaml
   .venv/               # created by setup.sh, gitignored
 ```
@@ -60,6 +63,8 @@ node "$SKILL/scripts/speak.mjs" play --file <file.mp3>   # play an existing clip
 **Claude Code** — `~/.claude/settings.json` registers `claude-hook.mjs` on `UserPromptSubmit` (opening cue) and `Stop` (result reply). On Stop it reads the transcript, extracts the last `<<voice: ...>>` marker the model wrote, and speaks it; if absent it falls back to keyword scoring via `codex-hook.mjs`.
 
 **Codex** — `~/.codex/hooks.json` registers `codex-hook.mjs` on the same events. Codex provides `last_assistant_message` directly, so no transcript parsing is needed.
+
+**Codex without hooks support** (older / some Windows builds) — fall back to Codex's `notify` mechanism: `node scripts/manage-notify.mjs add "$(pwd)"` points `notify` in `~/.codex/config.toml` at `codex-notify.mjs` (preserving and chaining any existing notify program). This speaks the `<<voice:>>` marker on turn completion only — there is no opening cue via notify.
 
 The model is instructed (in the user's global CLAUDE.md / Codex AGENTS.md) to end each turn with one line:
 

@@ -137,6 +137,7 @@ node scripts/doctor.mjs
 - **装完没重启 agent** —— hook 在会话启动时加载,改完必须重启 Claude Code / Codex。
 - **没装播放器**(Linux/Windows)—— 装 `ffplay`(ffmpeg)、`mpv` 或 `mpg123`;macOS 自带 `afplay`。
 - **hook 没注册,或命令路径被加了引号** —— 重跑 `./setup.sh`,会把 hook 重新写成正确(无引号)格式。
+- **Codex 这个版本不支持 hooks**(部分旧版 / 某些 Windows 构建)—— 用 `notify` 兜底:`node scripts/manage-notify.mjs add "$(pwd)"`,然后重启 Codex。它接管 Codex 的 `notify`(会**保留并链式调用**你原有的 notify),**只在"完成"时播报、没有开场提示**。
 - **edge-tts 没装上** —— 重跑 `./setup.sh`(需要 python3 + 网络)。
 
 `setup.sh` 结尾会自动跑一次 doctor 并播一句测试音,听到就说明声音正常。

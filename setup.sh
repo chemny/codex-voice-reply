@@ -115,6 +115,21 @@ else
   echo "  Skipped. To register later: node scripts/manage-hooks.mjs add \"$SKILL_DIR\""
 fi
 
+# 5b) Optional Codex `notify` fallback (for Codex without hooks support) -------
+echo
+if [ -t 0 ]; then
+  read -r -p "Also set up the Codex 'notify' fallback? (for Codex builds without hooks, e.g. some Windows CLIs; completion-only, no opening cue) [y/N] " nans
+else
+  nans="${VOICE_REPLY_NOTIFY:-n}"
+fi
+if [[ "$nans" =~ ^[Yy]$ ]]; then
+  node "$SKILL_DIR/scripts/manage-notify.mjs" add "$SKILL_DIR"
+  echo "  Restart Codex. (Your existing notify program, if any, is preserved and chained.)"
+else
+  echo "  Skipped. If Codex has no sound and its build has no hooks support, enable it later:"
+  echo "    node scripts/manage-notify.mjs add \"$SKILL_DIR\""
+fi
+
 # 6) Marker rule reminder ----------------------------------------------------
 cat <<EOF
 

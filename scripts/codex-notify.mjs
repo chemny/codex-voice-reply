@@ -1,67 +1,81 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+// Codex `notify` fallback — for Codex builds WITHOUT hooks.json support
+// (e.g. some Windows / older CLI builds). Codex invokes the notify program as:
+//
+//     <program> [fixed args...] <notification-json>
+//
+// so the notification JSON is the LAST argv. This script:
+//   1) chains the user's ORIGINAL notify program (preserved at setup time), and
+//   2) on turn completion, speaks the model's <<voice:>> marker (or a generic
+//      line), in the language-matched Codex voice.
+//
+// Limitation vs hooks: notify only fires on completion — there is no opening cue.
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { extractVoiceMarker, detectLang, resolveVoice } from "./opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "speak.mjs");
+const VOICE_HOME = join(homedir(), ".voice-reply");
 
-const defaults = {
-  enabled: true,
-  mode: "done",
-  // Optional: chain to another notifier (e.g. the original Codex notify program).
-  // Empty by default so the skill is portable. Set originalNotify in
-  // ~/.voice-reply/notify.json to [ "<program>", "<arg>", ... ] to enable.
-  originalNotify: [],
-  originalTimeoutMs: 5000,
-};
+function readJson(p) {
+  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return {}; }
+}
 
-function readStdin() {
+function codexVoices() {
+  const c = readJson(join(VOICE_HOME, "config.json"));
+  return { zh: c.voice || "zh-CN-XiaoxiaoNeural", en: c.voiceEn || "en-US-AriaNeural" };
+}
+
+function playDetached(command, args, extraEnv) {
   try {
-    return readFileSync(0, "utf8");
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+    });
+    child.unref();
   } catch {
-    return "";
+    // never break Codex's turn
   }
 }
 
-function loadConfig() {
-  const configPath = join(homedir(), ".voice-reply", "notify.json");
-  if (!existsSync(configPath)) return {};
-  try {
-    return JSON.parse(readFileSync(configPath, "utf8"));
-  } catch {
-    return {};
+function main() {
+  const dry = process.env.VOICE_REPLY_DRY_RUN === "1";
+  const cfg = readJson(join(VOICE_HOME, "notify.json"));
+
+  // Codex appends the notification JSON as the final argument.
+  const rawArg = process.argv[process.argv.length - 1] || "";
+  let note = {};
+  try { note = JSON.parse(rawArg); } catch { note = {}; }
+
+  // 1) Chain the user's original notify program (preserved), passing the same JSON.
+  const original = Array.isArray(cfg.originalNotify) ? cfg.originalNotify : [];
+  if (!dry && original.length && original[0] && original[0] !== process.execPath) {
+    playDetached(original[0], [...original.slice(1), rawArg]);
   }
+
+  if (cfg.enabled === false) return;
+
+  // 2) Speak on turn completion.
+  const type = String(note.type || "");
+  const msg = note["last-assistant-message"] || note.last_assistant_message || note.lastAssistantMessage || "";
+  const isComplete = /turn[-_ ]?complete|complete|finished|done/i.test(type) || Boolean(msg);
+  if (!isComplete) return;
+
+  const marker = extractVoiceMarker(msg);
+  const lang = detectLang(marker || msg);
+  const voice = resolveVoice(codexVoices(), lang);
+  const text = marker || (lang === "en" ? "Done. Check the result." : "已完成，请查看结果。");
+
+  if (dry) {
+    process.stdout.write(JSON.stringify({ notify: { chained: original.length ? original[0] : null, text, voice, source: marker ? "marker" : "fallback" } }, null, 2) + "\n");
+    return;
+  }
+  playDetached(process.execPath, [speakScript, "text", "--text", text, "--full"], { VOICE_REPLY_VOICE: voice });
 }
 
-function runOriginal(payload, config) {
-  const original = config.originalNotify;
-  if (!Array.isArray(original) || original.length === 0) return;
-  if (!existsSync(original[0])) return;
-  if (original[0] === process.execPath && original.includes(fileURLToPath(import.meta.url))) return;
-
-  spawnSync(original[0], original.slice(1), {
-    input: payload,
-    encoding: "utf8",
-    timeout: config.originalTimeoutMs,
-    stdio: ["pipe", "ignore", "ignore"],
-  });
-}
-
-function runVoice(config) {
-  if (config.enabled === false) return;
-  const mode = config.mode === "start" ? "start" : "done";
-  spawnSync(process.execPath, [speakScript, mode], {
-    encoding: "utf8",
-    stdio: ["ignore", "ignore", "ignore"],
-    timeout: 30000,
-  });
-}
-
-const payload = readStdin();
-const config = { ...defaults, ...loadConfig() };
-
-runOriginal(payload, config);
-runVoice(config);
+main();

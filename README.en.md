@@ -162,6 +162,7 @@ Common causes:
 - **Didn't restart the agent** — hooks load at session start, so restart Claude Code / Codex after install.
 - **No audio player** (Linux/Windows) — install `ffplay` (ffmpeg), `mpv`, or `mpg123`; macOS ships `afplay`.
 - **Hooks not registered, or the command path got quoted** — re-run `./setup.sh`; it rewrites the hook in the correct (unquoted) form.
+- **This Codex build has no hooks support** (older / some Windows CLIs) — use the `notify` fallback: `node scripts/manage-notify.mjs add "$(pwd)"`, then restart Codex. It takes over Codex's `notify` (preserving and chaining your existing one) and speaks on **completion only — no opening cue**.
 - **edge-tts not installed** — re-run `./setup.sh` (needs python3 + network).
 
 `setup.sh` ends by running the doctor and playing a test sound — if you hear it, audio works.
