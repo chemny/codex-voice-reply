@@ -1,7 +1,7 @@
 ---
 name: voice-reply
 version: 1.0.0
-description: Speak a short, context-aware voice reply for agent work — an instant acknowledgement when the user submits, and a decision-first spoken result when the turn finishes (it leads with the choice the user must make, turning a one-way announcement into a back-and-forth). Chinese + English: you pick a language at setup and it locks (or choose auto, which follows each message). Works for both Claude Code and Codex via their hook systems, with local Edge TTS playback. Use when adding spoken acknowledgements/announcements, reading a result aloud, or wiring voice notifications into an agent workflow.
+description: "Speak a short, context-aware voice reply for agent work — an instant acknowledgement when the user submits, and a decision-first spoken result when the turn finishes (it leads with the choice the user must make, turning a one-way announcement into a back-and-forth). Chinese + English: you pick a language at setup and it locks (or choose auto, which follows each message). Works for both Claude Code and Codex via their hook systems, with local Edge TTS playback. Use when adding spoken acknowledgements/announcements, reading a result aloud, or wiring voice notifications into an agent workflow."
 ---
 
 # Voice Reply
