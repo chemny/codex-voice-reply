@@ -1,7 +1,7 @@
 ---
 name: voice-reply
 version: 1.0.0
-description: "Speak a short, context-aware voice reply for agent work — an instant acknowledgement when the user submits, and a decision-first spoken result when the turn finishes (it leads with the choice the user must make, turning a one-way announcement into a back-and-forth). Chinese + English: you pick a language at setup and it locks (or choose auto, which follows each message). Works for both Claude Code and Codex via their hook systems, with local Edge TTS playback. Use when adding spoken acknowledgements/announcements, reading a result aloud, or wiring voice notifications into an agent workflow."
+description: "Speak a short, context-aware voice reply for agent work — an instant acknowledgement when the user submits, and a decision-first spoken result when the turn finishes (it leads with the choice the user must make, turning a one-way announcement into a back-and-forth). Chinese + English: you pick a language at setup and it locks (or choose auto, which follows each message). Works for Claude Code and Codex via hooks, with experimental OpenClaw and Hermes adapters, using local Edge TTS playback. Use when adding spoken acknowledgements/announcements, reading a result aloud, or wiring voice notifications into an agent workflow."
 ---
 
 # Voice Reply
@@ -33,6 +33,9 @@ voice-reply/
     manage-hooks.mjs   # register/remove hooks in settings.json / hooks.json
     manage-notify.mjs  # wire/unwire the Codex notify fallback in config.toml
     doctor.mjs         # self-check: node/edge-tts/player/config/cache/hooks
+  adapters/
+    openclaw/           # OpenClaw hook adapter (experimental)
+    hermes/             # Hermes shell-hook adapter (experimental)
   agents/openai.yaml
   .venv/               # created by setup.sh, gitignored
 ```
@@ -66,6 +69,10 @@ node "$SKILL/scripts/speak.mjs" play --file <file.mp3>   # play an existing clip
 **Codex** — `~/.codex/hooks.json` registers `codex-hook.mjs` on the same events. Codex provides `last_assistant_message` directly, so no transcript parsing is needed.
 
 **Codex without hooks support** (older / some Windows builds) — fall back to Codex's `notify` mechanism: `node scripts/manage-notify.mjs add "$(pwd)"` points `notify` in `~/.codex/config.toml` at `codex-notify.mjs` (preserving and chaining any existing notify program). This speaks the `<<voice:>>` marker on turn completion only — there is no opening cue via notify.
+
+**OpenClaw** — experimental adapter in `adapters/openclaw`. It treats `message:received` as the opening event and `message:sent` as the result event, then reuses the same shared opening and marker extraction rules.
+
+**Hermes** — experimental adapter in `adapters/hermes`. Configure it as a Hermes shell hook: `pre_llm_call` plays the opening cue, and `post_llm_call` speaks only the final `<<voice: ...>>` marker.
 
 The model is instructed (in the user's global CLAUDE.md / Codex AGENTS.md) to end each turn with one line:
 

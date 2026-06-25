@@ -20,6 +20,8 @@ echo "1. syntax"
 for f in speak opening claude-hook codex-hook codex-notify manage-hooks manage-notify doctor; do
   if node --check "$S/$f.mjs" 2>/dev/null; then ok "$f.mjs"; else bad "$f.mjs"; fi
 done
+node --check "$SKILL_DIR/adapters/openclaw/handler.js" >/dev/null 2>&1 && ok "adapters/openclaw/handler.js" || bad "adapters/openclaw/handler.js"
+node --check "$SKILL_DIR/adapters/hermes/voice-reply-hook.mjs" >/dev/null 2>&1 && ok "adapters/hermes/voice-reply-hook.mjs" || bad "adapters/hermes/voice-reply-hook.mjs"
 bash -n "$SKILL_DIR/setup.sh" && ok "setup.sh" || bad "setup.sh"
 bash -n "$SKILL_DIR/install.sh" && ok "install.sh" || bad "install.sh"
 
@@ -59,6 +61,20 @@ echo "$out" | grep -q '"对"' && ok "notify marker" || bad "notify marker"
 echo "7. Codex notify fallback stays silent without marker"
 out=$(VOICE_REPLY_DRY_RUN=1 node "$S/codex-notify.mjs" '{"type":"agent-turn-complete","last-assistant-message":"plain result without marker"}' 2>/dev/null)
 echo "$out" | grep -q 'no-marker-silent' && ok "notify no-marker silence" || bad "notify no-marker silence"
+
+echo "8. Hermes adapter dry-run speaks only marker on post_llm_call"
+out=$(printf '%s' '{"hook_event_name":"post_llm_call","extra":{"assistant_response":"done\n\n<<voice: 已完成，Hermes 适配可用。>>"}}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$SKILL_DIR/adapters/hermes/voice-reply-hook.mjs" 2>/dev/null)
+echo "$out" | grep -q 'Hermes 适配可用' && ok "hermes marker" || bad "hermes marker"
+
+echo "9. Hermes adapter stays silent without marker"
+out=$(printf '%s' '{"hook_event_name":"post_llm_call","extra":{"assistant_response":"plain result without marker"}}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$SKILL_DIR/adapters/hermes/voice-reply-hook.mjs" 2>/dev/null)
+echo "$out" | grep -q 'announceArgs' && bad "hermes no-marker silence" || ok "hermes no-marker silence"
+
+echo "10. OpenClaw adapter dry-run speaks marker on message:sent"
+out=$(VOICE_REPLY_DRY_RUN=1 node --input-type=module -e "import handler from '$SKILL_DIR/adapters/openclaw/handler.js'; await handler({type:'message', action:'sent', context:{content:'done\\n\\n<<voice: 已完成，OpenClaw 适配可用。>>'}});" 2>/dev/null)
+echo "$out" | grep -q 'OpenClaw 适配可用' && ok "openclaw marker" || bad "openclaw marker"
 
 echo
 [ "$fail" = "0" ] && echo "ALL PASS" || echo "SOME FAILED"

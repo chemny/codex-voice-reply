@@ -9,7 +9,8 @@ moment you speak, and when it finishes a step it tells you the **decision it nee
 from you**. You reply, it continues — a back-and-forth, so your eyes are free but
 you stay in control.
 
-Works with **Claude Code** and **Codex**, **Chinese and English (pick one at setup,
+Works with **Claude Code** and **Codex**, with experimental adapters for
+**OpenClaw** and **Hermes**, **Chinese and English (pick one at setup,
 locked; or choose auto-per-message)**, with an instant opening cue, a decision-first result reply,
 per-agent voices, one-command setup, cross-platform playback (macOS / Linux /
 Windows), and offline cues via local [Edge TTS](https://github.com/rany2/edge-tts).
@@ -57,7 +58,8 @@ or intermediate status by mistake.
 |---|---|
 | Claude Code | ✅ Supported (`~/.claude/settings.json` hooks) |
 | Codex | ✅ Supported (`~/.codex/hooks.json`) |
-| OpenClaw | ⚪ Not tested |
+| OpenClaw | 🧪 Experimental (`adapters/openclaw`) |
+| Hermes | 🧪 Experimental (`adapters/hermes`, `~/.hermes/config.yaml` shell hooks) |
 
 Playback works on macOS (`afplay`) and Linux/Windows (`ffplay` / `mpv` / `mpg123`).
 
@@ -111,6 +113,9 @@ voice-reply/
 │   ├── codex-hook.mjs   # Codex hook entry
 │   ├── codex-notify.mjs # Codex notify fallback
 │   └── manage-hooks.mjs # idempotent install/remove hooks (with backup)
+├── adapters/
+│   ├── openclaw/        # OpenClaw hook adapter
+│   └── hermes/          # Hermes shell-hook adapter
 ├── install.sh / setup.sh / uninstall.sh / test.sh
 ├── SKILL.md / README.md / README.zh.md / LICENSE / .gitignore
 └── agents/openai.yaml
@@ -145,6 +150,20 @@ Common causes:
 - **Hooks not registered, or the command path got quoted** — rerun the one-command installer; it rewrites the hook in the correct form.
 - **This Codex build has no hooks support** (older / some Windows CLIs) — use the `notify` fallback: `node scripts/manage-notify.mjs add "$(pwd)"`, then restart Codex. It takes over Codex's `notify` (preserving and chaining your existing one) and speaks the voice marker on **completion only — no opening cue**.
 - **edge-tts not installed** — rerun the one-command installer (needs python3 + network).
+
+## Experimental Adapters
+
+OpenClaw and Hermes adapters reuse the same shared rules as Claude Code and
+Codex:
+
+- opening cue: classify the user's prompt and speak a short acknowledgement;
+- result reply: speak only the explicit `<<voice: ...>>` marker;
+- no marker: stay silent.
+
+OpenClaw files live in `adapters/openclaw`. Hermes files live in
+`adapters/hermes`; its hook command is configured through `~/.hermes/config.yaml`.
+Both adapters are marked experimental until their event payloads are validated
+across more installs.
 
 The install flow ends by running the doctor and playing a test sound. If you hear
 it, audio works.
