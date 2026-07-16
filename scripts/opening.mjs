@@ -16,8 +16,9 @@ import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "speak.mjs");
-const CACHE_DIR = join(homedir(), ".voice-reply", "cache");
-const CONFIG = join(homedir(), ".voice-reply", "hooks.json");
+const VOICE_HOME = process.env.VOICE_REPLY_HOME || join(homedir(), ".voice-reply");
+const CACHE_DIR = join(VOICE_HOME, "cache");
+const CONFIG = join(VOICE_HOME, "hooks.json");
 
 // 中英两套语言包：开场固定词 + 分类关键词。改词/调规则只改这里，三端同步。
 const PACKS = {
@@ -65,6 +66,7 @@ export function openingCue(prompt, lang) {
   const pack = PACKS[lang] || PACKS.zh;
   const text = String(prompt || "");
   if (pack.instructionRe.test(text)) return pack.instruction;
+  if (lang === "zh" && /(几点|多久|多长时间|有没有|有木有|行不行|可不可以|能不能|是不是|怎么|为什么|为何|如何|多少|哪里|哪儿|哪个|哪些|什么|谁|何时|是否|吗|呢|？|\?)/.test(text)) return pack.question;
   if (pack.questionRe.test(text)) return pack.question;
   return pack.other;
 }
@@ -93,13 +95,13 @@ export function promptText(input) {
 }
 
 // 抠出回答里最后一个 <<voice: ...>> 标记的内容（三端共用）。
-const VOICE_MARKER = /<<\s*voice\s*:\s*([\s\S]*?)>>/gi;
+const VOICE_MARKER = /(?:<<\s*voice\s*:\s*([\s\S]*?)>>|<!--\s*voice\s*:\s*([\s\S]*?)-->)/gi;
 export function extractVoiceMarker(text) {
   if (!text) return "";
   const re = new RegExp(VOICE_MARKER);
   let match;
   let last = "";
-  while ((match = re.exec(text)) !== null) last = match[1];
+  while ((match = re.exec(text)) !== null) last = match[1] ?? match[2] ?? "";
   return last.replace(/\s+/g, " ").trim();
 }
 
@@ -124,6 +126,7 @@ export function playDetached(command, args, extraEnv) {
     const child = spawn(command, args, {
       detached: true,
       stdio: "ignore",
+      windowsHide: true,
       env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     });
     child.unref();

@@ -35,7 +35,7 @@ const CLAUDE_VOICES = { zh: CLAUDE_VOICE_ZH, en: CLAUDE_VOICE_EN };
 
 // 回答里"为耳朵写的"播报摘要标记：<<voice: 已完成…，记得…>>
 // 只朗读这个显式标记；抓不到就静默，避免把长正文或中途状态念出来。
-const VOICE_MARKER = /<<\s*voice\s*:\s*([\s\S]*?)>>/gi;
+const VOICE_MARKER = /(?:<<\s*voice\s*:\s*([\s\S]*?)>>|<!--\s*voice\s*:\s*([\s\S]*?)-->)/gi;
 const MARKER_MAX_CHARS = 60;
 
 // 开场提示规则现在在共享模块 opening.mjs，Claude 和 Codex 共用。
@@ -91,7 +91,7 @@ function extractVoiceMarker(text) {
   const re = new RegExp(VOICE_MARKER);
   let match;
   let last = "";
-  while ((match = re.exec(text)) !== null) last = match[1];
+  while ((match = re.exec(text)) !== null) last = match[1] ?? match[2] ?? "";
   const cleaned = last.replace(/\s+/g, " ").trim();
   if (!isUsefulVoiceText(cleaned)) return "";
   // 硬截到 ≤60，但在句末/逗号边界收尾（既保证 ≤60，又不切半句）。

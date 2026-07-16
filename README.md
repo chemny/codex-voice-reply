@@ -37,10 +37,10 @@ Two spoken moments per turn:
   can carry the real answer (yes/no, a number, "restart to apply"), in a voice matched
   to the reply's language.
 
-The intelligence lives in the model, not the script: the model ends each reply
-with a `<<voice: ...>>` line, and the hook simply extracts and speaks it. If the
-line is missing, result speech stays silent so the hook never reads long body text
-or intermediate status by mistake.
+Codex summarizes the final answer locally, so normal turns need no extra model
+instruction or output marker. An optional hidden `<!-- voice: ... -->` marker can
+override the local summary for an exact decision-first phrase. Legacy
+`<<voice: ...>>` markers remain supported.
 
 ## Core Capabilities
 
@@ -65,6 +65,8 @@ Playback works on macOS (`afplay`) and Linux/Windows (`ffplay` / `mpv` / `mpg123
 
 ## Install
 
+macOS / Linux:
+
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/chemny/voice-reply/main/install.sh)"
 ```
@@ -73,9 +75,22 @@ The installer guides the full setup: repository checkout, Python environment,
 Edge TTS, voice cache, Claude Code / Codex hooks, result-marker instructions, and
 a final sound test. Restart the agent session after it finishes.
 
+Codex requires one-time approval for installed hooks. After setup, run `/hooks`
+in Codex and approve both `UserPromptSubmit` and `Stop`, then start a new task.
+The installer prints and speaks this reminder; `doctor.mjs` reports either
+`approval required` or `approval record found` for each hook.
+
 The default install location is `~/.agents/skills/voice-reply`. Set
 `VOICE_REPLY_INSTALL_DIR` before running the installer if you want a different
 folder.
+
+## Windows Installation
+
+Run the PowerShell installer:
+
+```powershell
+irm https://raw.githubusercontent.com/chemny/voice-reply/main/install.ps1 | iex
+```
 
 ## Quick Start
 
@@ -88,16 +103,16 @@ The installer finishes with an audible test and a self-check report.
 
 ## Usage Examples
 
-Result speech comes from the `<<voice: ...>>` marker in the agent's final reply.
-That marker is written for the ear: short, direct, and focused on the conclusion
-or next action.
+Result speech normally comes from Codex's local, privacy-filtered sentence selector.
+An optional hidden `<!-- voice: ... -->` marker can override it with an exact phrase.
+Legacy `<<voice: ...>>` markers remain supported.
 
 ## How It Works
 
 | Moment | Who decides what to say | What you hear |
 |---|---|---|
 | You submit | hook classifies the prompt (`scripts/opening.mjs`, shared) | 我看看 / 好，这就做 / 收到 |
-| Agent finishes | the **model** writes `<<voice: …>>` | the real result; silent when missing |
+| Agent finishes | the **model** writes `<!-- voice: … -->` | the real result; silent when missing |
 
 The hook scripts only play audio. Playback is fired in the background so hooks
 return in ~200 ms and never block the agent. Spoken text is hard-capped at 60 chars.
@@ -157,8 +172,8 @@ OpenClaw and Hermes adapters reuse the same shared rules as Claude Code and
 Codex:
 
 - opening cue: classify the user's prompt and speak a short acknowledgement;
-- result reply: speak only the explicit `<<voice: ...>>` marker;
-- no marker: stay silent.
+- result reply: locally select the conclusion or decision sentence;
+- optional hidden marker: override the local selection with an exact phrase.
 
 OpenClaw files live in `adapters/openclaw`. Hermes files live in
 `adapters/hermes`; its hook command is configured through `~/.hermes/config.yaml`.

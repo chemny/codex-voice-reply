@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -16,7 +17,64 @@ const defaults = {
   summaryPrefix: "任务已完成。主要结果是：",
   maxResultChars: 60,
   playCommand: "auto",
+  cacheSpeech: true,
+  queueTimeoutMs: 60000,
 };
+
+const VOICE_HOME = process.env.VOICE_REPLY_HOME || join(homedir(), ".voice-reply");
+const WAIT_BUFFER = new Int32Array(new SharedArrayBuffer(4));
+
+function sleep(ms) {
+  Atomics.wait(WAIT_BUFFER, 0, 0, ms);
+}
+
+function acquireSpeechLock(timeoutMs = 60000) {
+  mkdirSync(VOICE_HOME, { recursive: true });
+  const lockPath = join(VOICE_HOME, "speech.lock");
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      const fd = openSync(lockPath, "wx");
+      writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+      return () => {
+        try { closeSync(fd); } catch { /* already closed */ }
+        try { unlinkSync(lockPath); } catch { /* already removed */ }
+      };
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lockPath).mtimeMs > 120000) {
+          unlinkSync(lockPath);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error("Speech queue timed out waiting for another playback.");
+      sleep(75);
+    }
+  }
+}
+
+function speechCachePath(text, config) {
+  const key = createHash("sha256")
+    .update(JSON.stringify([text, config.voice, config.rate, config.volume]))
+    .digest("hex")
+    .slice(0, 24);
+  return join(VOICE_HOME, "cache", `speech-${key}.mp3`);
+}
+
+function pruneSpeechCache(cacheDir, maxFiles = 100) {
+  try {
+    const files = readdirSync(cacheDir)
+      .filter((name) => name.startsWith("speech-") && name.endsWith(".mp3"))
+      .map((name) => ({ name, mtime: statSync(join(cacheDir, name)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    for (const file of files.slice(Math.max(0, maxFiles - 1))) unlinkSync(join(cacheDir, file.name));
+  } catch {
+    // Cache maintenance must never prevent speech.
+  }
+}
 
 // Cross-platform audio players. Each entry builds the argv for a given file.
 const PLAYERS = {
@@ -127,7 +185,15 @@ function loadConfig(path) {
 }
 
 function commandExists(command) {
-  if (command.includes("/") && existsSync(command)) return true;
+  if ((command.includes("/") || command.includes("\\")) && existsSync(command)) return true;
+  if (process.platform === "win32") {
+    const result = spawnSync("where.exe", [command], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    return result.status === 0 && result.stdout.trim().length > 0;
+  }
   const result = spawnSync("/bin/sh", ["-lc", `command -v ${shellQuote(command)}`], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
@@ -174,7 +240,7 @@ function resolveSpeechText(mode, config, options) {
 }
 
 function runChecked(command, args, label) {
-  const result = spawnSync(command, args, { encoding: "utf8" });
+  const result = spawnSync(command, args, { encoding: "utf8", windowsHide: true });
   if (result.error) {
     throw new Error(`${label} failed: ${result.error.message}`);
   }
@@ -199,8 +265,9 @@ function envOverrides() {
 function main() {
   const { mode, options } = parseArgs(process.argv.slice(2));
   const config = { ...defaults, ...loadConfig(options.config), ...envOverrides(), ...options };
-  const bundledEdgeTts = join(__dirname, "..", ".venv", "bin", "edge-tts");
-  const bundledPython = join(__dirname, "..", ".venv", "bin", "python");
+  const bundledPython = process.platform === "win32"
+    ? join(__dirname, "..", ".venv", "Scripts", "python.exe")
+    : join(__dirname, "..", ".venv", "bin", "python");
   const edgeTtsCommand = commandExists("edge-tts") ? "edge-tts" : bundledPython;
   const edgeTtsBaseArgs = edgeTtsCommand === bundledPython ? ["-m", "edge_tts"] : [];
   // play mode: just play an existing audio file with the resolved cross-platform player.
@@ -213,13 +280,20 @@ function main() {
     if (!options.file) throw new Error("play mode requires --file");
     if (!existsSync(options.file)) throw new Error(`file not found: ${options.file}`);
     if (!player.available) throw new Error("No audio player found. Install ffplay/mpv/mpg123, or set playCommand.");
-    runChecked(player.command, player.buildArgs(options.file), player.command);
+    const release = acquireSpeechLock(config.queueTimeoutMs);
+    try {
+      runChecked(player.command, player.buildArgs(options.file), player.command);
+    } finally {
+      release();
+    }
     return;
   }
 
   const text = stripUnspeakable(resolveSpeechText(mode, config, options));
   const edgeAvailable = commandExists(edgeTtsCommand);
   const player = resolvePlayer(config.playCommand);
+  const cachedAudio = config.cacheSpeech === false ? null : speechCachePath(text, config);
+  const cacheHit = Boolean(cachedAudio && existsSync(cachedAudio));
 
   // Nothing speakable left after stripping (e.g. emoji-only) — skip silently.
   if (!text) {
@@ -238,33 +312,49 @@ function main() {
       edgeTtsAvailable: edgeAvailable,
       edgeTtsCommand,
       edgeTtsBaseArgs,
+      cacheHit,
+      cachePath: cachedAudio,
       playerAvailable: player.available,
       playCommand: player.command,
     }, null, 2) + "\n");
     return;
   }
 
-  if (!edgeAvailable) {
-    throw new Error("edge-tts is not installed or not on PATH. Run setup.sh, or install it: python3 -m pip install edge-tts");
-  }
   if (!player.available) {
     throw new Error("No audio player found. On Linux/Windows install ffplay (ffmpeg), mpv, or mpg123; or set playCommand in ~/.voice-reply/config.json.");
   }
-
-  const tempDir = mkdtempSync(join(tmpdir(), "voice-reply-"));
-  const audioPath = join(tempDir, "speak.mp3");
+  const release = acquireSpeechLock(config.queueTimeoutMs);
   try {
-    runChecked(edgeTtsCommand, [
-      ...edgeTtsBaseArgs,
-      "--voice", config.voice,
-      "--rate", config.rate,
-      "--volume", config.volume,
-      "--text", text,
-      "--write-media", audioPath,
-    ], "edge-tts");
-    runChecked(player.command, player.buildArgs(audioPath), player.command);
+    if (cachedAudio && existsSync(cachedAudio)) {
+      runChecked(player.command, player.buildArgs(cachedAudio), player.command);
+      return;
+    }
+    if (!edgeAvailable) {
+      throw new Error("edge-tts is not installed or not on PATH. Run setup.sh, or install it: python3 -m pip install edge-tts");
+    }
+    const tempDir = mkdtempSync(join(tmpdir(), "voice-reply-"));
+    const audioPath = join(tempDir, "speak.mp3");
+    try {
+      runChecked(edgeTtsCommand, [
+        ...edgeTtsBaseArgs,
+        "--voice", config.voice,
+        "--rate", config.rate,
+        "--volume", config.volume,
+        "--text", text,
+        "--write-media", audioPath,
+      ], "edge-tts");
+      if (cachedAudio) {
+        const cacheDir = dirname(cachedAudio);
+        mkdirSync(cacheDir, { recursive: true });
+        pruneSpeechCache(cacheDir);
+        copyFileSync(audioPath, cachedAudio);
+      }
+      runChecked(player.command, player.buildArgs(audioPath), player.command);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   } finally {
-    rmSync(tempDir, { recursive: true, force: true });
+    release();
   }
 }
 

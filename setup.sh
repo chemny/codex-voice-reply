@@ -5,8 +5,15 @@ set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VOICE_HOME="$HOME/.voice-reply"
 VENV="$SKILL_DIR/.venv"
-PY="$VENV/bin/python"
+if [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* ]]; then
+  PY="$VENV/Scripts/python.exe"
+  PYTHON_CMD="python"
+else
+  PY="$VENV/bin/python"
+  PYTHON_CMD="python3"
+fi
 MARKER_SENTINEL="voice-reply result marker"
+HOOKS_REGISTERED=false
 
 echo "Voice Reply setup"
 echo "  skill dir : $SKILL_DIR"
@@ -15,7 +22,7 @@ echo
 
 # 1) Prerequisites -----------------------------------------------------------
 command -v node    >/dev/null || { echo "ERROR: node is required."; exit 1; }
-command -v python3 >/dev/null || { echo "ERROR: python3 is required."; exit 1; }
+command -v "$PYTHON_CMD" >/dev/null || { echo "ERROR: Python 3 is required."; exit 1; }
 
 PLAYER=""
 for p in afplay ffplay mpv mpg123 cvlc paplay aplay; do
@@ -30,7 +37,7 @@ fi
 # 2) Python venv + edge-tts --------------------------------------------------
 if [ ! -x "$PY" ]; then
   echo "Creating virtualenv..."
-  python3 -m venv "$VENV"
+  "$PYTHON_CMD" -m venv "$VENV"
 fi
 echo "Installing edge-tts..."
 "$PY" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
@@ -48,7 +55,9 @@ if [ ! -f "$VOICE_HOME/config.json" ]; then
   "voice": "zh-CN-XiaoxiaoNeural",
   "voiceEn": "en-US-AriaNeural",
   "rate": "+0%",
-  "volume": "+0%"
+  "volume": "+0%",
+  "cacheSpeech": true,
+  "queueTimeoutMs": 60000
 }
 JSON
   echo "  wrote config.json (Codex voices: zh XiaoXiao / en Aria)"
@@ -136,7 +145,17 @@ else
 fi
 if [[ "$ans" =~ ^[Yy]$ ]]; then
   node "$SKILL_DIR/scripts/manage-hooks.mjs" add "$SKILL_DIR"
-  echo "  Restart your agent session for hooks to load."
+  HOOKS_REGISTERED=true
+  echo
+  echo "================================================================"
+  echo " Voice Reply is installed, but Codex hook approval is still needed."
+  echo
+  echo " In Codex:"
+  echo "   1. Run /hooks"
+  echo "   2. Approve UserPromptSubmit"
+  echo "   3. Approve Stop"
+  echo "   4. Start a new task and test the voice"
+  echo "================================================================"
 else
   echo "  Skipped. To register later: node scripts/manage-hooks.mjs add \"$SKILL_DIR\""
 fi
@@ -171,9 +190,9 @@ add_marker_rule() {
 ## Voice Reply
 
 <!-- voice-reply result marker -->
-End every final reply with one spoken-result marker on its own line:
+End every final reply with one hidden spoken-result marker on its own line:
 
-`<<voice: status + core info + next step>>`
+`<!-- voice: status + core info + next step -->`
 
 It MUST be 60 characters or fewer — if longer, rewrite it shorter. Keep it
 ear-friendly and free of code, paths, or secrets.
@@ -202,7 +221,16 @@ echo "Verifying install..."
 node "$SKILL_DIR/scripts/doctor.mjs" || true
 echo
 echo "Playing a test sound — you should hear it:"
-node "$SKILL_DIR/scripts/speak.mjs" text --text "安装完成，听到这句话说明声音正常。Setup complete." --full \
+if [ "$HOOKS_REGISTERED" = true ]; then
+  TEST_TEXT="Voice Reply 安装完成。请打开 Codex，输入斜杠 hooks，批准 UserPromptSubmit 和 Stop 两项权限。"
+else
+  TEST_TEXT="Voice Reply 安装完成，听到这句话说明声音正常。"
+fi
+node "$SKILL_DIR/scripts/speak.mjs" text --text "$TEST_TEXT" --full \
   || echo "  Test sound FAILED — see the doctor output above for the cause."
 echo
-echo "Done. Restart your agent session for the hooks to take effect."
+if [ "$HOOKS_REGISTERED" = true ]; then
+  echo "NEXT STEP: In Codex run /hooks and approve UserPromptSubmit + Stop, then start a new task."
+else
+  echo "Done. Hooks were not registered; rerun setup later if you want automatic voice replies."
+fi

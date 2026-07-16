@@ -3,8 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
-import { playOpening, detectLang, resolveVoice, clampSpoken } from "./opening.mjs";
+import { playOpening, playDetached, detectLang, resolveVoice, clampSpoken } from "./opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "speak.mjs");
@@ -52,14 +51,14 @@ const defaults = {
 };
 
 // 显式播报标记 <<voice: ...>>：模型为耳朵写的那句。Stop 只播这个标记。
-const VOICE_MARKER = /<<\s*voice\s*:\s*([\s\S]*?)>>/gi;
+const VOICE_MARKER = /(?:<<\s*voice\s*:\s*([\s\S]*?)>>|<!--\s*voice\s*:\s*([\s\S]*?)-->)/gi;
 
 function extractVoiceMarker(text) {
   if (!text) return "";
   const re = new RegExp(VOICE_MARKER);
   let match;
   let last = "";
-  while ((match = re.exec(text)) !== null) last = match[1];
+  while ((match = re.exec(text)) !== null) last = match[1] ?? match[2] ?? "";
   const cleaned = last.replace(/\s+/g, " ").trim();
   return isUsefulVoiceText(cleaned) ? cleaned : "";
 }
@@ -122,12 +121,7 @@ function speak(args, voice) {
     process.stdout.write(JSON.stringify({ announceArgs: args, voice }, null, 2) + "\n");
     return;
   }
-  spawnSync(process.execPath, [speakScript, ...args], {
-    encoding: "utf8",
-    stdio: ["ignore", "ignore", "ignore"],
-    timeout: 30000,
-    env: voice ? { ...process.env, VOICE_REPLY_VOICE: voice } : process.env,
-  });
+  playDetached(process.execPath, [speakScript, ...args], voice ? { VOICE_REPLY_VOICE: voice } : undefined);
 }
 
 function shouldSpeakNode(input, config) {
@@ -145,7 +139,7 @@ function redactSensitiveText(text) {
 
 function stripMarkdown(text) {
   return redactSensitiveText(text)
-    .replace(/<<\s*voice\s*:\s*[\s\S]*?>>/gi, " ")
+    .replace(/(?:<<\s*voice\s*:\s*[\s\S]*?>>|<!--\s*voice\s*:\s*[\s\S]*?-->)/gi, " ")
     .replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/g, " ")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
@@ -212,27 +206,36 @@ function polishForSpeech(text) {
 }
 
 function buildSummary(message, config) {
-  const cleaned = shortenPaths(stripMarkdown(message))
+  const cleaned = redactSensitiveText(message)
+    .replace(/(?:<<\s*voice\s*:\s*[\s\S]*?>>|<!--\s*voice\s*:\s*[\s\S]*?-->)/gi, " ")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/::[a-zA-Z-]+(?:\{[^}]*\})?/g, " ")
+    .replace(/[A-Za-z]:\\(?:[^\\\s]+\\)*[^\\\s]+/g, "相关文件")
+    .replace(/^\s*(?:#{1,6}|[-*+]|\d+\.)\s*/gm, "")
+    .replace(/[\r\n]+/g, "。")
     .replace(/\s+/g, " ")
-    .replace(/\s*([，。！？；：、,.!?;:])\s*/g, "$1")
     .trim();
   const sentences = splitSentences(cleaned);
   if (sentences.length === 0) return "";
 
   const ranked = sentences
-    .map((sentence, index) => ({ sentence, index, score: scoreSentence(sentence) }))
-    .filter(({ sentence }) => sentence.length >= 4)
+    .map((sentence, index) => {
+      let score = 0;
+      if (/(需要你|请你|请选择|请确认|请回复|告诉我|你来决定|是否继续|能否继续)/.test(sentence)) score += 12;
+      if (/(失败|错误|不能|无法|缺少|阻塞|异常|未通过|有风险)/.test(sentence)) score += 9;
+      if (/(已完成|完成了|已修复|修复了|已通过|通过了|已安装|已配置|状态正常|可以使用|已经正常)/.test(sentence)) score += 7;
+      if (/(下一步|然后|之后|重启|重试|确认后)/.test(sentence)) score += 4;
+      if ([...sentence].length >= 6 && [...sentence].length <= 80) score += 2;
+      if (/^(参考|路径|命令|文件|测试细节|实现细节)[:：]?/.test(sentence)) score -= 5;
+      return { sentence, index, score };
+    })
+    .filter(({ sentence }) => [...sentence].length >= 3)
     .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  const selected = [];
-  for (const item of ranked) {
-    if (selected.length >= config.maxSummarySentences) break;
-    if (!selected.some((existing) => existing.sentence === item.sentence)) selected.push(item);
-  }
-
-  const ordered = selected.sort((a, b) => a.index - b.index).map(({ sentence }) => sentence);
-  const summary = ordered.length ? ordered.join("；") : sentences.slice(0, config.maxSummarySentences).join("；");
-  return polishForSpeech(summary); // 不截断：完整一句念完
+  return ranked[0]?.sentence || sentences[0] || "";
 }
 
 function main() {
@@ -256,12 +259,20 @@ function main() {
 
   if (event === "Stop" && config.stop) {
     const voices = codexVoices();
-    const marker = config.stopMode === "summary" ? extractVoiceMarker(input.last_assistant_message) : "";
+    const marker = extractVoiceMarker(input.last_assistant_message);
     if (marker) {
       // 模型主动写的播报标记：直接念，最准。音色按标记语种选（与 Claude 一致）。
       log("stop", { source: "marker" });
       // 硬截到 ≤60，但在句末/逗号边界收尾（保证 ≤60 且不切半句）。
       speak(["text", "--text", clampSpoken(marker, config.maxResultChars), "--full"], pickVoice(voices, detectLang(marker)));
+    } else if (config.stopMode === "summary" || config.stopMode === "auto") {
+      const summary = buildSummary(input.last_assistant_message, config);
+      if (summary) {
+        log("stop", { source: "local-summary" });
+        speak(["text", "--text", clampSpoken(summary, config.maxResultChars), "--full"], pickVoice(voices, detectLang(summary)));
+      } else {
+        log("stop", { source: "empty-summary-silent" });
+      }
     } else {
       log("stop", { source: "no-marker-silent" });
     }

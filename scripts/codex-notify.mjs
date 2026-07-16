@@ -35,6 +35,7 @@ function playDetached(command, args, extraEnv) {
     const child = spawn(command, args, {
       detached: true,
       stdio: "ignore",
+      windowsHide: true,
       env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     });
     child.unref();

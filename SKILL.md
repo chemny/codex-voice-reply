@@ -64,27 +64,27 @@ node "$SKILL/scripts/speak.mjs" play --file <file.mp3>   # play an existing clip
 
 ## Automatic hooks
 
-**Claude Code** — `~/.claude/settings.json` registers `claude-hook.mjs` on `UserPromptSubmit` (opening cue) and `Stop` (result reply). On Stop it reads the transcript, extracts the last `<<voice: ...>>` marker the model wrote, and speaks it. If absent, it stays silent.
+**Claude Code** — `~/.claude/settings.json` registers `claude-hook.mjs` on `UserPromptSubmit` (opening cue) and `Stop` (result reply). On Stop it reads the transcript, extracts the last hidden `<!-- voice: ... -->` marker the model wrote, and speaks it. If absent, it stays silent. Legacy `<<voice: ...>>` markers remain supported.
 
-**Codex** — `~/.codex/hooks.json` registers `codex-hook.mjs` on the same events. Codex provides `last_assistant_message` directly, so no transcript parsing is needed.
+**Codex** — `~/.codex/hooks.json` registers `codex-hook.mjs` on the same events. Codex provides `last_assistant_message` directly. The hook selects a complete conclusion, error, or decision sentence locally, so normal turns require no extra model tokens. A hidden marker remains an optional exact override.
 
-**Codex without hooks support** (older / some Windows builds) — fall back to Codex's `notify` mechanism: `node scripts/manage-notify.mjs add "$(pwd)"` points `notify` in `~/.codex/config.toml` at `codex-notify.mjs` (preserving and chaining any existing notify program). This speaks the `<<voice:>>` marker on turn completion only — there is no opening cue via notify.
+**Codex without hooks support** (older / some Windows builds) — fall back to Codex's `notify` mechanism: `node scripts/manage-notify.mjs add "$(pwd)"` points `notify` in `~/.codex/config.toml` at `codex-notify.mjs` (preserving and chaining any existing notify program). This speaks the hidden voice marker on turn completion only — there is no opening cue via notify.
 
 **OpenClaw** — experimental adapter in `adapters/openclaw`. It treats `message:received` as the opening event and `message:sent` as the result event, then reuses the same shared opening and marker extraction rules.
 
-**Hermes** — experimental adapter in `adapters/hermes`. Configure it as a Hermes shell hook: `pre_llm_call` plays the opening cue, and `post_llm_call` speaks only the final `<<voice: ...>>` marker.
+**Hermes** — experimental adapter in `adapters/hermes`. Configure it as a Hermes shell hook: `pre_llm_call` plays the opening cue, and `post_llm_call` speaks only the final hidden voice marker.
 
-The model is instructed (in the user's global CLAUDE.md / Codex AGENTS.md) to end each turn with one line:
+For agents that need an exact spoken override, the optional marker is:
 
 ```
-<<voice: status + core info + next action>>
+<!-- voice: status + core info + next action -->
 ```
 
-**Decision-first**: when the result needs the user to decide, choose, confirm, or
-answer something, the marker should lead with what the user must do (e.g.
-`<<voice: 要你定：现在能不能重启？>>`) so they can reply by voice without reading.
+Codex does not require this marker. Its local selector prioritizes sentences that
+ask the user to decide, choose, confirm, or answer. When a marker is used, it
+should still lead with what the user must do.
 
-The model **must keep the marker ≤60 chars** (rewrite shorter if it would exceed). As a hard safety net the hooks also **clamp the spoken audio to ≤60 chars**, trimming at the last sentence/clause boundary so it stays complete (never cut mid-word) — see `clampSpoken` in `scripts/opening.mjs` and `maxResultChars` / `MARKER_MAX_CHARS`. Both Claude Code (`claude-hook`) and Codex (`codex-hook`) speak only this marker on turn completion; if it is absent, they stay silent.
+Spoken audio is clamped to ≤60 characters. Codex falls back to its local summary when no marker exists; Claude Code and the experimental adapters keep their existing marker-only behavior.
 
 ## Per-agent voice
 

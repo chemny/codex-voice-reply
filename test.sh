@@ -14,6 +14,7 @@ TESTHOME="$(mktemp -d)"
 mkdir -p "$TESTHOME/.voice-reply"
 printf '{}' > "$TESTHOME/.voice-reply/hooks.json"
 export HOME="$TESTHOME"
+export VOICE_REPLY_HOME="$TESTHOME/.voice-reply"
 trap 'rm -rf "$TESTHOME"' EXIT
 
 echo "1. syntax"
@@ -34,21 +35,38 @@ out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"一堆细
   | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
 echo "$out" | grep -q '"对"' && ok "single-char marker kept" || bad "single-char marker kept"
 
+echo "3a. codex-hook supports hidden HTML marker"
+out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"完成。\n\n<!-- voice: 隐藏播报可用 -->"}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
+echo "$out" | grep -q '隐藏播报可用' && ok "hidden marker kept" || bad "hidden marker kept"
+
 echo "3b. codex-hook rejects punctuation-only marker (silent, not spoken literally)"
 out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"改好了，记得重启。\n\n<<voice: ...>>"}' \
   | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
 echo "$out" | grep -q '\.\.\.' && bad "reject punct-only marker" || ok "reject punct-only marker"
 
-echo "4. codex-hook stays silent without marker"
+echo "4. codex-hook builds a local summary without marker"
 out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"已完成。修复了参数解析并通过校验。"}' \
   | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
-echo "$out" | grep -q 'announceArgs' && bad "no-marker silence" || ok "no-marker silence"
+echo "$out" | grep -q 'announceArgs' && ok "local summary" || bad "local summary"
+
+echo "4a. local summary preserves complete outcome and decision sentences"
+out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"已完成。修复了 Windows 弹窗问题，并通过全部测试。"}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
+echo "$out" | grep -q '修复了 Windows 弹窗问题，并通过全部测试' && ok "outcome sentence" || bad "outcome sentence"
+out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"需要你确认：现在是否继续推送到 GitHub？确认后我会创建提交。"}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
+echo "$out" | grep -q '需要你确认：现在是否继续推送到 GitHub' && ok "decision-first sentence" || bad "decision-first sentence"
 
 echo "5. shared opening rule + language detection (opening.mjs)"
 # prints "<lang> <key>" for a prompt
-oc() { node --input-type=module -e "import {detectLang,openingCue} from '$S/opening.mjs'; const l=detectLang(process.argv[1]); console.log(l, openingCue(process.argv[1], l).key)" "$1"; }
+oc() { node --input-type=module -e "import {pathToFileURL} from 'node:url'; const m=await import(pathToFileURL(process.argv[1])); const l=m.detectLang(process.argv[2]); console.log(l, m.openingCue(process.argv[2], l).key)" "$S/opening.mjs" "$1"; }
 [ "$(oc '帮我改一下')"        = "zh instruction" ] && ok "zh instruction" || bad "zh instruction"
 [ "$(oc '这样对吗')"          = "zh question" ]    && ok "zh question"    || bad "zh question"
+[ "$(oc '现在几点')"          = "zh question" ]    && ok "zh question: 几点" || bad "zh question: 几点"
+[ "$(oc '大概要多久')"        = "zh question" ]    && ok "zh question: 多久" || bad "zh question: 多久"
+[ "$(oc '这样行不行')"        = "zh question" ]    && ok "zh question: 行不行" || bad "zh question: 行不行"
+[ "$(oc '有没有结果')"        = "zh question" ]    && ok "zh question: 有没有" || bad "zh question: 有没有"
 [ "$(oc '我跟你说个事')"      = "zh other" ]       && ok "zh other"       || bad "zh other"
 [ "$(oc 'fix this bug')"      = "en instruction" ] && ok "en instruction" || bad "en instruction"
 [ "$(oc 'is this right?')"    = "en question" ]    && ok "en question"    || bad "en question"
@@ -73,7 +91,7 @@ out=$(printf '%s' '{"hook_event_name":"post_llm_call","extra":{"assistant_respon
 echo "$out" | grep -q 'announceArgs' && bad "hermes no-marker silence" || ok "hermes no-marker silence"
 
 echo "10. OpenClaw adapter dry-run speaks marker on message:sent"
-out=$(VOICE_REPLY_DRY_RUN=1 node --input-type=module -e "import handler from '$SKILL_DIR/adapters/openclaw/handler.js'; await handler({type:'message', action:'sent', context:{content:'done\\n\\n<<voice: 已完成，OpenClaw 适配可用。>>'}});" 2>/dev/null)
+out=$(VOICE_REPLY_DRY_RUN=1 node --input-type=module -e "import {pathToFileURL} from 'node:url'; const {default:handler}=await import(pathToFileURL(process.argv[1])); await handler({type:'message', action:'sent', context:{content:'done\\n\\n<<voice: 已完成，OpenClaw 适配可用。>>'}});" "$SKILL_DIR/adapters/openclaw/handler.js" 2>/dev/null)
 echo "$out" | grep -q 'OpenClaw 适配可用' && ok "openclaw marker" || bad "openclaw marker"
 
 echo
