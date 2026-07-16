@@ -4,7 +4,7 @@
 //   node manage-hooks.mjs remove <skillRoot>
 // Backs up each file to <file>.bak before writing. Never clobbers other hooks.
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -43,8 +43,9 @@ for (const t of targets) {
     // Always drop any prior voice-reply entry first (self-heals an old/broken format),
     // then for "add" append a fresh one. Command is UNQUOTED to match what the agents'
     // hook runners actually execute (a quoted path is taken literally and fails silently).
+    const scriptName = basename(t.script);
     const list = (Array.isArray(data.hooks[ev]) ? data.hooks[ev] : []).filter(
-      (group) => !JSON.stringify(group).includes(t.script),
+      (group) => !JSON.stringify(group).includes(scriptName),
     );
     if (mode === "add") {
       list.push({ hooks: [{ type: "command", command: `node ${t.script}`, timeout: 60 }] });
