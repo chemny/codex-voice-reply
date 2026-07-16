@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Voice Reply — one-command setup. Idempotent: safe to re-run.
+# Codex Voice Reply — one-command setup. Idempotent: safe to re-run.
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,7 +15,7 @@ fi
 MARKER_SENTINEL="voice-reply result marker"
 HOOKS_REGISTERED=false
 
-echo "Voice Reply setup"
+echo "Codex Voice Reply setup"
 echo "  skill dir : $SKILL_DIR"
 echo "  data dir  : $VOICE_HOME"
 echo
@@ -148,7 +148,7 @@ if [[ "$ans" =~ ^[Yy]$ ]]; then
   HOOKS_REGISTERED=true
   echo
   echo "================================================================"
-  echo " Voice Reply is installed, but Codex hook approval is still needed."
+  echo " Codex Voice Reply is installed, but Codex hook approval is still needed."
   echo
   echo " In Codex:"
   echo "   1. Run /hooks"
@@ -187,7 +187,7 @@ add_marker_rule() {
   fi
   cat >> "$file" <<'EOF'
 
-## Voice Reply
+## Codex Voice Reply
 
 <!-- voice-reply result marker -->
 End every final reply with one hidden spoken-result marker on its own line:
@@ -222,9 +222,9 @@ node "$SKILL_DIR/scripts/doctor.mjs" || true
 echo
 echo "Playing a test sound — you should hear it:"
 if [ "$HOOKS_REGISTERED" = true ]; then
-  TEST_TEXT="Voice Reply 安装完成。请打开 Codex，输入斜杠 hooks，批准 UserPromptSubmit 和 Stop 两项权限。"
+  TEST_TEXT="Codex Voice Reply 安装完成。请打开 Codex，输入斜杠 hooks，批准 UserPromptSubmit 和 Stop 两项权限。"
 else
-  TEST_TEXT="Voice Reply 安装完成，听到这句话说明声音正常。"
+  TEST_TEXT="Codex Voice Reply 安装完成，听到这句话说明声音正常。"
 fi
 node "$SKILL_DIR/scripts/speak.mjs" text --text "$TEST_TEXT" --full \
   || echo "  Test sound FAILED — see the doctor output above for the cause."

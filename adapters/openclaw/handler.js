@@ -1,4 +1,4 @@
-// Voice Reply — OpenClaw hook handler.
+// Codex Voice Reply — OpenClaw hook handler.
 //
 // Mirrors the Claude/Codex adapters: shared opening rules and playback live in
 // scripts/. This file only maps OpenClaw's event shape onto them.

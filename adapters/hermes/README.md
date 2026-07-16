@@ -1,4 +1,4 @@
-# Voice Reply for Hermes
+# Codex Voice Reply for Hermes
 
 Hermes supports shell-script hooks from `~/.hermes/config.yaml`. This adapter
 uses two hook events:
@@ -11,10 +11,10 @@ Example config:
 ```yaml
 hooks:
   pre_llm_call:
-    - command: "node ~/.agents/skills/voice-reply/adapters/hermes/voice-reply-hook.mjs"
+    - command: "node ~/.agents/skills/codex-voice-reply/adapters/hermes/voice-reply-hook.mjs"
       timeout: 5
   post_llm_call:
-    - command: "node ~/.agents/skills/voice-reply/adapters/hermes/voice-reply-hook.mjs"
+    - command: "node ~/.agents/skills/codex-voice-reply/adapters/hermes/voice-reply-hook.mjs"
       timeout: 10
 hooks_auto_accept: true
 ```

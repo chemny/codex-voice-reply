@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Voice Reply — dry-run regression checks (no audio, no network).
+# Codex Voice Reply — dry-run regression checks (no audio, no network).
 set -uo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 S="$SKILL_DIR/scripts"

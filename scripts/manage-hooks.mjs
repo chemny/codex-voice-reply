@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Idempotently add or remove Voice Reply hooks in the agent config files.
+// Idempotently add or remove Codex Voice Reply hooks in the agent config files.
 //   node manage-hooks.mjs add    <skillRoot>
 //   node manage-hooks.mjs remove <skillRoot>
 // Backs up each file to <file>.bak before writing. Never clobbers other hooks.

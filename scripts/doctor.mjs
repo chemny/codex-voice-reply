@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Voice Reply doctor — verify the whole chain so "no sound" is debuggable.
+// Codex Voice Reply doctor — verify the whole chain so "no sound" is debuggable.
 // Run:  node scripts/doctor.mjs
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -28,7 +28,7 @@ function cmdExists(c) {
   return r.status === 0 && r.stdout.trim().length > 0;
 }
 
-console.log("Voice Reply doctor\n");
+console.log("Codex Voice Reply doctor\n");
 
 console.log("Runtime");
 Number(process.versions.node.split(".")[0]) >= 18
@@ -73,7 +73,7 @@ function checkHooks(label, file, scriptName) {
   try { raw = readFileSync(file, "utf8"); } catch { WARN(`${label}: unreadable`); return false; }
   // Match by script basename — robust to symlinks / realpath differences (/tmp vs /private/tmp,
   // or a skill dir symlinked to a repo). The path being absolute makes exact compares fragile.
-  if (!raw.includes(scriptName)) { WARN(`${label}: voice-reply not registered`, "rerun the installer to register"); return false; }
+  if (!raw.includes(scriptName)) { WARN(`${label}: codex-voice-reply not registered`, "rerun the installer to register"); return false; }
   if (raw.includes(`\\"${scriptName}`) || raw.includes('node \\"')) {
     FAIL(`${label}: hook command path is quoted (some runners take it literally → silent)`, "rerun the installer to rewrite it unquoted");
   } else {

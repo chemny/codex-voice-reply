@@ -1,5 +1,5 @@
 ---
-name: voice-reply
+name: codex-voice-reply
 description: "Speak a short voice reply on prompt submit and turn completion."
 metadata:
   {
@@ -20,7 +20,7 @@ metadata:
   }
 ---
 
-# Voice Reply (OpenClaw hook)
+# Codex Voice Reply (OpenClaw hook)
 
 Plays a quick, type-aware spoken acknowledgement when a prompt arrives, and
 speaks the model's `<<voice: ...>>` result marker when a turn completes. It
@@ -34,5 +34,5 @@ for diagnostics only and are written to `~/.voice-reply/openclaw-hook.log`.
 Enable with:
 
 ```bash
-openclaw hooks enable voice-reply
+openclaw hooks enable codex-voice-reply
 ```

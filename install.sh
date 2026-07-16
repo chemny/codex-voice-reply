@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Voice Reply bootstrap installer.
+# Codex Voice Reply bootstrap installer.
 set -euo pipefail
 
-REPO_URL="${VOICE_REPLY_REPO_URL:-https://github.com/chemny/voice-reply.git}"
-INSTALL_DIR="${VOICE_REPLY_INSTALL_DIR:-$HOME/.agents/skills/voice-reply}"
+REPO_URL="${VOICE_REPLY_REPO_URL:-https://github.com/chemny/codex-voice-reply.git}"
+INSTALL_DIR="${VOICE_REPLY_INSTALL_DIR:-$HOME/.agents/skills/codex-voice-reply}"
 
-echo "Voice Reply installer"
+echo "Codex Voice Reply installer"
 echo "  install dir: $INSTALL_DIR"
 echo
 
@@ -20,7 +20,7 @@ elif [ -e "$INSTALL_DIR" ]; then
   echo "Set VOICE_REPLY_INSTALL_DIR to another folder and rerun."
   exit 1
 else
-  echo "Cloning Voice Reply..."
+  echo "Cloning Codex Voice Reply..."
   mkdir -p "$(dirname "$INSTALL_DIR")"
   git clone "$REPO_URL" "$INSTALL_DIR"
 fi

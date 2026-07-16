@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$InstallDir = (Join-Path $HOME ".agents\skills\voice-reply"),
+  [string]$InstallDir = (Join-Path $HOME ".agents\skills\codex-voice-reply"),
   [ValidateSet("zh", "en", "auto")]
   [string]$Language = "zh",
   [bool]$RegisterHooks = $true,
@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repoUrl = if ($env:VOICE_REPLY_REPO_URL) { $env:VOICE_REPLY_REPO_URL } else { "https://github.com/chemny/voice-reply.git" }
+$repoUrl = if ($env:VOICE_REPLY_REPO_URL) { $env:VOICE_REPLY_REPO_URL } else { "https://github.com/chemny/codex-voice-reply.git" }
 $git = Get-Command git -ErrorAction Stop
 $bashCandidates = @(
   (Join-Path (Split-Path (Split-Path $git.Source)) "bin\bash.exe"),
@@ -43,13 +43,13 @@ $env:VOICE_REPLY_NOTIFY = if ($EnableNotifyFallback) { "y" } else { "n" }
 $setup = ConvertTo-GitBashPath (Join-Path $InstallDir "setup.sh")
 
 & $bash -lc "bash '$setup'"
-if ($LASTEXITCODE -ne 0) { throw "Voice Reply setup failed with exit code $LASTEXITCODE." }
+if ($LASTEXITCODE -ne 0) { throw "Codex Voice Reply setup failed with exit code $LASTEXITCODE." }
 
 if ($RegisterHooks) {
   Write-Host ""
-  Write-Host "Voice Reply is installed, but Codex hook approval is still needed." -ForegroundColor Yellow
+  Write-Host "Codex Voice Reply is installed, but Codex hook approval is still needed." -ForegroundColor Yellow
   Write-Host "In Codex, run /hooks and approve UserPromptSubmit and Stop." -ForegroundColor Cyan
   Write-Host "Then start a new task to test the voice." -ForegroundColor Cyan
 } else {
-  Write-Host "Voice Reply setup completed without hook registration."
+  Write-Host "Codex Voice Reply setup completed without hook registration."
 }

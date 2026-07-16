@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Wire (or unwire) Codex's `notify` in ~/.codex/config.toml to voice-reply, for
+// Wire (or unwire) Codex's `notify` in ~/.codex/config.toml to Codex Voice Reply, for
 // Codex builds without hooks.json support. Preserves any existing notify program
 // (saved to ~/.voice-reply/notify.json as originalNotify, chained at runtime).
 //   node manage-notify.mjs add    <skillRoot>
@@ -58,13 +58,13 @@ if (mode === "add") {
   else lines.unshift(newLine);
   mkdirSync(dirname(configToml), { recursive: true });
   writeFileSync(configToml, lines.join("\n"));
-  console.log(`+ Codex notify → voice-reply in ${configToml}${existsSync(configToml + ".bak") ? " (backup .bak)" : ""}`);
+  console.log(`+ Codex notify → codex-voice-reply in ${configToml}${existsSync(configToml + ".bak") ? " (backup .bak)" : ""}`);
   if (Array.isArray(cfg.originalNotify) && cfg.originalNotify.length) {
     console.log(`  preserved your original notify: ${cfg.originalNotify[0]}`);
   }
 } else {
   if (idx < 0 || !isOurs(lines[idx].replace(/^[^=]*=\s*/, "").trim())) {
-    console.log("= Codex notify: voice-reply not wired, nothing to remove");
+    console.log("= Codex notify: codex-voice-reply not wired, nothing to remove");
     process.exit(0);
   }
   const cfg = loadCfg();

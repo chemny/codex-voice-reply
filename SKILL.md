@@ -1,14 +1,14 @@
 ---
-name: voice-reply
+name: codex-voice-reply
 version: 1.0.0
 description: "Speak a short, context-aware voice reply for agent work — an instant acknowledgement when the user submits, and a decision-first spoken result when the turn finishes (it leads with the choice the user must make, turning a one-way announcement into a back-and-forth). Chinese + English: you pick a language at setup and it locks (or choose auto, which follows each message). Works for Claude Code and Codex via hooks, with experimental OpenClaw and Hermes adapters, using local Edge TTS playback. Use when adding spoken acknowledgements/announcements, reading a result aloud, or wiring voice notifications into an agent workflow."
 ---
 
-# Voice Reply
+# Codex Voice Reply
 
 ## Overview
 
-Voice Reply gives a coding agent a short spoken voice:
+Codex Voice Reply gives a coding agent a short spoken voice:
 
 - **Opening cue** — the instant the user submits, a hook plays a quick acknowledgement matched to the message's language and type (zh: 我看看 / 好，这就做 / 收到; en: Let me look / On it / Got it). It fires before the model has read the message, so it can only acknowledge, never answer.
 - **Result reply** — when the turn finishes, the model's own one-line summary is spoken: a conclusion, or **the decision the user must make (decision-first)** so they can answer and keep the loop going. It can contain the actual answer (对/错, a fact, "改好了，记得重启"), in a voice matched to the reply's language.
@@ -18,7 +18,7 @@ Playback is local Edge TTS + `afplay`, fired in the background so hooks return i
 ## Layout
 
 ```
-voice-reply/
+codex-voice-reply/
   SKILL.md
   install.sh           # one-command bootstrap installer
   setup.sh             # one-command install (venv, cache, hooks)

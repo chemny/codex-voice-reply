@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Voice Reply — Hermes shell-hook adapter.
+// Codex Voice Reply — Hermes shell-hook adapter.
 //
 // Intended for ~/.hermes/config.yaml hooks:
 //   pre_llm_call  -> opening cue

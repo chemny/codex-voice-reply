@@ -1,10 +1,10 @@
-# Voice Reply
+# Codex Voice Reply
 
 English | [中文](./README.zh.md)
 
 **Talk with your agent by voice — stop watching the screen.**
 
-Voice Reply makes your coding agent more than a one-way announcer: it answers the
+Codex Voice Reply makes your coding agent more than a one-way announcer: it answers the
 moment you speak, and when it finishes a step it tells you the **decision it needs
 from you**. You reply, it continues — a back-and-forth, so your eyes are free but
 you stay in control.
@@ -68,7 +68,7 @@ Playback works on macOS (`afplay`) and Linux/Windows (`ffplay` / `mpv` / `mpg123
 macOS / Linux:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/chemny/voice-reply/main/install.sh)"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/chemny/codex-voice-reply/main/install.sh)"
 ```
 
 The installer guides the full setup: repository checkout, Python environment,
@@ -80,7 +80,7 @@ in Codex and approve both `UserPromptSubmit` and `Stop`, then start a new task.
 The installer prints and speaks this reminder; `doctor.mjs` reports either
 `approval required` or `approval record found` for each hook.
 
-The default install location is `~/.agents/skills/voice-reply`. Set
+The default install location is `~/.agents/skills/codex-voice-reply`. Set
 `VOICE_REPLY_INSTALL_DIR` before running the installer if you want a different
 folder.
 
@@ -89,7 +89,7 @@ folder.
 Run the PowerShell installer:
 
 ```powershell
-irm https://raw.githubusercontent.com/chemny/voice-reply/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/chemny/codex-voice-reply/main/install.ps1 | iex
 ```
 
 ## Quick Start
@@ -120,7 +120,7 @@ return in ~200 ms and never block the agent. Spoken text is hard-capped at 60 ch
 ## Repository Structure
 
 ```text
-voice-reply/
+codex-voice-reply/
 ├── scripts/
 │   ├── speak.mjs        # core: text → Edge TTS mp3 → cross-platform player
 │   ├── opening.mjs      # shared opening-cue rule (both agents)

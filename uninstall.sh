@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Voice Reply — remove hooks from agent configs. Leaves ~/.voice-reply intact.
+# Codex Voice Reply — remove hooks from agent configs. Leaves ~/.voice-reply intact.
 set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
