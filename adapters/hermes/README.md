@@ -28,5 +28,6 @@ hermes hooks test pre_llm_call
 hermes hooks test post_llm_call --payload-file /path/to/payload.json
 ```
 
-The adapter is intentionally silent when no valid `<<voice: ...>>` marker is
-present, matching the Codex and Claude Code behavior.
+When no valid `<<voice: ...>>` marker is present, the adapter speaks a short
+fallback (`已完成。`) and logs `no-marker-fallback`, matching the Codex and
+Claude Code behavior.

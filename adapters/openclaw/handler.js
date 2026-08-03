@@ -16,6 +16,7 @@ const LOG = join(homedir(), ".voice-reply", "openclaw-hook.log");
 // OpenClaw voice, distinct from Claude male / Codex female defaults.
 const OPENCLAW_VOICE = "zh-CN-YunyangNeural";
 const MAX_RESULT_CHARS = 60;
+const NO_MARKER_FALLBACK = "已完成。";
 
 const SUBMIT_EVENTS = new Set(["message:received"]);
 const DONE_EVENTS = new Set(["message:sent"]);
@@ -74,7 +75,8 @@ const handler = async (event) => {
         speakDetached(marker);
         log({ name, did: "marker" });
       } else {
-        log({ name, did: "no-marker", hasReply: Boolean(reply) });
+        speakDetached(NO_MARKER_FALLBACK);
+        log({ name, did: "no-marker-fallback", hasReply: Boolean(reply) });
       }
     }
   } catch (error) {

@@ -3,7 +3,7 @@
 //
 // Intended for ~/.hermes/config.yaml hooks:
 //   pre_llm_call  -> opening cue
-//   post_llm_call -> final <<voice: ...>> result marker
+//   post_llm_call -> final voice marker or short fallback
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,6 +15,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "..", "..", "scripts", "speak.mjs");
 const LOG = join(homedir(), ".voice-reply", "hermes-hook.log");
 const MAX_RESULT_CHARS = 60;
+const NO_MARKER_FALLBACK = "已完成。";
 
 const HERMES_VOICES = {
   zh: process.env.VOICE_REPLY_HERMES_VOICE_ZH || "zh-CN-YunjianNeural",
@@ -148,7 +149,8 @@ function main() {
       speakDetached(marker);
       log({ event, did: "marker" });
     } else {
-      log({ event, did: "no-marker", hasReply: Boolean(reply) });
+      speakDetached(NO_MARKER_FALLBACK);
+      log({ event, did: "no-marker-fallback", hasReply: Boolean(reply) });
     }
   }
 }

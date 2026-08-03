@@ -31,23 +31,25 @@ Two spoken moments per turn:
   matched to your message's **language and type**. It fires *before* the model
   reads your message, so it only acknowledges — never pretends to answer.
   Pre-synthesized and cached, so it plays offline in under a second.
-- **Result reply** — when the turn finishes, the model's one-line reply is spoken:
-  a conclusion, **or the decision it needs from you (decision-first)**. You answer
-  and the loop continues — turning a one-way announcement into a back-and-forth. It
-  can carry the real answer (yes/no, a number, "restart to apply"), in a voice matched
-  to the reply's language.
+- **Result reply** — when the turn finishes, Codex locally selects a concise
+  conclusion, failure, or **decision it needs from you (decision-first)**. You
+  answer and the loop continues — turning a one-way announcement into a
+  back-and-forth. An explicit voice marker can override the selection when exact
+  wording matters.
 
 Codex summarizes the final answer locally, so normal turns need no extra model
 instruction or output marker. An optional hidden `<!-- voice: ... -->` marker can
 override the local summary for an exact decision-first phrase. Legacy
-`<<voice: ...>>` markers remain supported.
+`<<voice: ...>>` markers remain supported. If neither a marker nor a useful local
+summary is available, the hook speaks a short safe fallback ("已完成。") and records
+`no-marker-fallback`, so missed markers do not turn into silence.
 
 ## Core Capabilities
 
 | Capability | What It Helps You Do |
 |---|---|
 | Instant opening cue | Hear immediately that the agent has received the task and started working. |
-| Final voice reply | Speak only the final `voice` marker, so long answers or intermediate status do not get read aloud. |
+| Final voice reply | Speak a local result summary by default, with optional marker override and short fallback. |
 | Decision-first reminder | When the result needs approval, a choice, or a next step, hear that action first. |
 | Chinese + English voice | Use fixed Chinese, fixed English, or automatic language switching per message. |
 | Per-agent voice identity | Give Claude Code and Codex different voices so parallel agents are easy to tell apart. |
@@ -65,32 +67,17 @@ Playback works on macOS (`afplay`) and Linux/Windows (`ffplay` / `mpv` / `mpg123
 
 ## Install
 
-macOS / Linux:
+Send this to your Agent:
 
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/chemny/codex-voice-reply/main/install.sh)"
+```text
+Install this Skill for me:
+https://github.com/chemny/codex-voice-reply
 ```
 
-The installer guides the full setup: repository checkout, Python environment,
-Edge TTS, voice cache, Claude Code / Codex hooks, result-marker instructions, and
-a final sound test. Restart the agent session after it finishes.
-
-Codex requires one-time approval for installed hooks. After setup, run `/hooks`
-in Codex and approve both `UserPromptSubmit` and `Stop`, then start a new task.
-The installer prints and speaks this reminder; `doctor.mjs` reports either
-`approval required` or `approval record found` for each hook.
-
-The default install location is `~/.agents/skills/codex-voice-reply`. Set
-`VOICE_REPLY_INSTALL_DIR` before running the installer if you want a different
-folder.
-
-## Windows Installation
-
-Run the PowerShell installer:
-
-```powershell
-irm https://raw.githubusercontent.com/chemny/codex-voice-reply/main/install.ps1 | iex
-```
+The Agent will choose the installation method for the current client, check
+Node.js, Python, Edge TTS, and audio-player dependencies, register the supported
+hooks, and verify that the Skill loads and plays a test sound. On Codex builds
+that require hook approval, it will tell you exactly which approval remains.
 
 ## Quick Start
 
@@ -112,7 +99,7 @@ Legacy `<<voice: ...>>` markers remain supported.
 | Moment | Who decides what to say | What you hear |
 |---|---|---|
 | You submit | hook classifies the prompt (`scripts/opening.mjs`, shared) | 我看看 / 好，这就做 / 收到 |
-| Agent finishes | the **model** writes `<!-- voice: … -->` | the real result; silent when missing |
+| Agent finishes | hook selects a local summary, or the model writes `<!-- voice: … -->` | the real result; short fallback when missing |
 
 The hook scripts only play audio. Playback is fired in the background so hooks
 return in ~200 ms and never block the agent. Spoken text is hard-capped at 60 chars.
@@ -173,7 +160,9 @@ Codex:
 
 - opening cue: classify the user's prompt and speak a short acknowledgement;
 - result reply: locally select the conclusion or decision sentence;
-- optional hidden marker: override the local selection with an exact phrase.
+- optional hidden marker: override the local selection with an exact phrase;
+- no usable summary: speak a short fallback and log `no-marker-fallback`.
+- Codex background memory-maintenance turns: stay silent unless an explicit voice marker is present (`suppressMaintenance` defaults to `true`).
 
 OpenClaw files live in `adapters/openclaw`. Hermes files live in
 `adapters/hermes`; its hook command is configured through `~/.hermes/config.yaml`.

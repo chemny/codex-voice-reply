@@ -69,13 +69,16 @@ if [ ! -f "$VOICE_HOME/hooks.json" ]; then
   "start": true,
   "stop": true,
   "stopMode": "summary",
+  "noMarkerFallback": true,
+  "suppressMaintenance": true,
   "maxResultChars": 60,
   "maxSummarySentences": 1,
   "nodeEvents": false,
   "texts": {
     "UserPromptSubmit": "收到",
     "Stop": "已完成，请查看结果。",
-    "StopSummaryPrefix": "已完成。"
+    "StopSummaryPrefix": "已完成。",
+    "NoMarkerFallback": "已完成。"
   }
 }
 JSON
@@ -190,14 +193,18 @@ add_marker_rule() {
 ## Codex Voice Reply
 
 <!-- voice-reply result marker -->
-End every final reply with one hidden spoken-result marker on its own line:
+Codex Voice Reply can summarize final answers locally. When you need an exact
+spoken override, end the final reply with one hidden spoken-result marker on its
+own line:
 
 `<!-- voice: status + core info + next step -->`
 
 It MUST be 60 characters or fewer — if longer, rewrite it shorter. Keep it
-ear-friendly and free of code, paths, or secrets.
-When the result needs the user to decide, choose, confirm, or answer, lead with
-what the user must do.
+ear-friendly and free of code, paths, or secrets. When the result needs the user
+to decide, choose, confirm, or answer, lead with what the user must do.
+
+The hook has local-summary and no-marker fallback behavior, but the hidden marker
+is still the best way to force an exact spoken result.
 EOF
   echo "  added $label rule"
 }

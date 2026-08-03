@@ -58,6 +58,22 @@ out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"需要你
   | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
 echo "$out" | grep -q '需要你确认：现在是否继续推送到 GitHub' && ok "decision-first sentence" || bad "decision-first sentence"
 
+echo "4b. codex-hook falls back when marker and summary are absent"
+out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":""}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
+echo "$out" | grep -q '"已完成。"' && ok "no-marker fallback" || bad "no-marker fallback"
+
+echo "4c. Codex background memory maintenance stays silent"
+out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"Consolidated the new rollouts into:"}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
+[ -z "$out" ] && ok "maintenance result silence" || bad "maintenance result silence"
+out=$(printf '%s' '{"hook_event_name":"UserPromptSubmit","prompt":"Consolidate the new rollouts into MEMORY.md and memory_summary.md."}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
+[ -z "$out" ] && ok "maintenance opening silence" || bad "maintenance opening silence"
+out=$(printf '%s' '{"hook_event_name":"Stop","last_assistant_message":"Consolidation complete.\n\n<<voice: 记忆维护已按用户要求完成。>>"}' \
+  | VOICE_REPLY_DRY_RUN=1 node "$S/codex-hook.mjs" 2>/dev/null)
+echo "$out" | grep -q '记忆维护已按用户要求完成' && ok "maintenance marker override" || bad "maintenance marker override"
+
 echo "5. shared opening rule + language detection (opening.mjs)"
 # prints "<lang> <key>" for a prompt
 oc() { node --input-type=module -e "import {pathToFileURL} from 'node:url'; const m=await import(pathToFileURL(process.argv[1])); const l=m.detectLang(process.argv[2]); console.log(l, m.openingCue(process.argv[2], l).key)" "$S/opening.mjs" "$1"; }
@@ -76,23 +92,37 @@ echo "6. Codex notify fallback (dry-run): speaks the marker on turn-complete"
 out=$(VOICE_REPLY_DRY_RUN=1 node "$S/codex-notify.mjs" '{"type":"agent-turn-complete","last-assistant-message":"x\n\n<<voice: 对>>"}' 2>/dev/null)
 echo "$out" | grep -q '"对"' && ok "notify marker" || bad "notify marker"
 
-echo "7. Codex notify fallback stays silent without marker"
+echo "7. Codex notify fallback speaks safe fallback without marker"
 out=$(VOICE_REPLY_DRY_RUN=1 node "$S/codex-notify.mjs" '{"type":"agent-turn-complete","last-assistant-message":"plain result without marker"}' 2>/dev/null)
-echo "$out" | grep -q 'no-marker-silent' && ok "notify no-marker silence" || bad "notify no-marker silence"
+echo "$out" | grep -q 'no-marker-fallback' && echo "$out" | grep -q '已完成。' && ok "notify no-marker fallback" || bad "notify no-marker fallback"
 
-echo "8. Hermes adapter dry-run speaks only marker on post_llm_call"
+echo "8. Hermes adapter dry-run speaks marker on post_llm_call"
 out=$(printf '%s' '{"hook_event_name":"post_llm_call","extra":{"assistant_response":"done\n\n<<voice: 已完成，Hermes 适配可用。>>"}}' \
   | VOICE_REPLY_DRY_RUN=1 node "$SKILL_DIR/adapters/hermes/voice-reply-hook.mjs" 2>/dev/null)
 echo "$out" | grep -q 'Hermes 适配可用' && ok "hermes marker" || bad "hermes marker"
 
-echo "9. Hermes adapter stays silent without marker"
+echo "9. Hermes adapter speaks safe fallback without marker"
 out=$(printf '%s' '{"hook_event_name":"post_llm_call","extra":{"assistant_response":"plain result without marker"}}' \
   | VOICE_REPLY_DRY_RUN=1 node "$SKILL_DIR/adapters/hermes/voice-reply-hook.mjs" 2>/dev/null)
-echo "$out" | grep -q 'announceArgs' && bad "hermes no-marker silence" || ok "hermes no-marker silence"
+echo "$out" | grep -q '已完成。' && ok "hermes no-marker fallback" || bad "hermes no-marker fallback"
 
 echo "10. OpenClaw adapter dry-run speaks marker on message:sent"
 out=$(VOICE_REPLY_DRY_RUN=1 node --input-type=module -e "import {pathToFileURL} from 'node:url'; const {default:handler}=await import(pathToFileURL(process.argv[1])); await handler({type:'message', action:'sent', context:{content:'done\\n\\n<<voice: 已完成，OpenClaw 适配可用。>>'}});" "$SKILL_DIR/adapters/openclaw/handler.js" 2>/dev/null)
 echo "$out" | grep -q 'OpenClaw 适配可用' && ok "openclaw marker" || bad "openclaw marker"
+
+echo "11. OpenClaw adapter speaks safe fallback without marker"
+out=$(VOICE_REPLY_DRY_RUN=1 node --input-type=module -e "import handler from '$SKILL_DIR/adapters/openclaw/handler.js'; await handler({type:'message', action:'sent', context:{content:'plain result without marker'}});" 2>/dev/null)
+echo "$out" | grep -q '已完成。' && ok "openclaw no-marker fallback" || bad "openclaw no-marker fallback"
+
+echo "12. SKILL.md documents local summary, optional marker, and fallback"
+if grep -q 'Codex does not require an output marker' "$SKILL_DIR/SKILL.md" \
+  && grep -q '<!-- voice: status + core info + next action -->' "$SKILL_DIR/SKILL.md" \
+  && grep -q 'local summary' "$SKILL_DIR/SKILL.md" \
+  && grep -q 'no-marker-fallback' "$SKILL_DIR/SKILL.md"; then
+  ok "voice reply contract"
+else
+  bad "voice reply contract"
+fi
 
 echo
 [ "$fail" = "0" ] && echo "ALL PASS" || echo "SOME FAILED"

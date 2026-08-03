@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { playOpening, playDetached, detectLang, resolveVoice, clampSpoken } from "./opening.mjs";
+import { playOpening, playDetached, detectLang, resolveVoice, clampSpoken, promptText } from "./opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "speak.mjs");
@@ -43,14 +43,17 @@ const defaults = {
     Stop: "已完成，请查看结果。",
     StopEn: "Done. Check the result.",
     StopSummaryPrefix: "已完成。",
+    NoMarkerFallback: "已完成。",
     PreToolUse: "开始执行工具。",
     PostToolUse: "工具执行完成。",
   },
+  noMarkerFallback: true,
+  suppressMaintenance: true,
   maxResultChars: 60,
   maxSummarySentences: 1,
 };
 
-// 显式播报标记 <<voice: ...>>：模型为耳朵写的那句。Stop 只播这个标记。
+// 显式播报标记：模型为耳朵写的那句。Codex 默认可本地摘要，标记只做精确覆盖。
 const VOICE_MARKER = /(?:<<\s*voice\s*:\s*([\s\S]*?)>>|<!--\s*voice\s*:\s*([\s\S]*?)-->)/gi;
 
 function extractVoiceMarker(text) {
@@ -67,6 +70,22 @@ function isUsefulVoiceText(text) {
   // 必须含至少一个汉字或字母/数字；纯标点/省略号/破折号/emoji 一律视为无效。
   const t = String(text || "");
   return /[\u4e00-\u9fff]/.test(t) || /[A-Za-z0-9]/.test(t);
+}
+
+// Codex also fires global hooks for its own background memory-maintenance turns.
+// Those turns are not user-facing and must not produce opening or result audio.
+// An explicit voice marker still wins, so a real user-facing reply can override
+// this guard when necessary.
+const INTERNAL_MAINTENANCE_PATTERNS = [
+  /^\s*Consolidation complete\.?\s*$/i,
+  /^\s*Consolidated the new rollouts into\s*:/i,
+  /^\s*Updated MEMORY\.md and memory_summary\.md(?: in incremental mode)?\.?\s*$/i,
+  /\bconsolidat(?:e|ed|ing|ion)\b[\s\S]{0,240}\b(?:new rollouts?|MEMORY\.md|memory_summary\.md)\b/i,
+];
+
+function isInternalMaintenanceText(text) {
+  const normalized = String(text || "").trim();
+  return normalized !== "" && INTERNAL_MAINTENANCE_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 function readStdinJson() {
@@ -251,6 +270,10 @@ function main() {
   const event = input.hook_event_name || process.argv[2] || "";
   log("hook", { hook_event_name: event, input_keys: Object.keys(input), has_last_assistant_message: Boolean(input.last_assistant_message) });
   if (event === "UserPromptSubmit" && config.start) {
+    if (config.suppressMaintenance !== false && isInternalMaintenanceText(promptText(input))) {
+      log("open", { source: "internal-maintenance-silent" });
+      return;
+    }
     // 走和 Claude 一样的通用开场规则（opening.mjs）：按语种 + 类型分类，后台、缓存。
     const cue = playOpening(input, codexVoices());
     log("open", { cue: cue.key, lang: cue.lang });
@@ -265,11 +288,17 @@ function main() {
       log("stop", { source: "marker" });
       // 硬截到 ≤60，但在句末/逗号边界收尾（保证 ≤60 且不切半句）。
       speak(["text", "--text", clampSpoken(marker, config.maxResultChars), "--full"], pickVoice(voices, detectLang(marker)));
+    } else if (config.suppressMaintenance !== false && isInternalMaintenanceText(input.last_assistant_message)) {
+      log("stop", { source: "internal-maintenance-silent" });
     } else if (config.stopMode === "summary" || config.stopMode === "auto") {
       const summary = buildSummary(input.last_assistant_message, config);
       if (summary) {
         log("stop", { source: "local-summary" });
         speak(["text", "--text", clampSpoken(summary, config.maxResultChars), "--full"], pickVoice(voices, detectLang(summary)));
+      } else if (config.noMarkerFallback !== false) {
+        const fallback = config.texts.NoMarkerFallback || config.texts.StopSummaryPrefix || "已完成。";
+        log("stop", { source: "no-marker-fallback" });
+        speak(["text", "--text", clampSpoken(fallback, config.maxResultChars), "--full"], pickVoice(voices, detectLang(fallback)));
       } else {
         log("stop", { source: "empty-summary-silent" });
       }

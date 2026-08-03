@@ -33,10 +33,11 @@ const CLAUDE_VOICE_ZH = "zh-CN-YunxiNeural";
 const CLAUDE_VOICE_EN = "en-US-GuyNeural";
 const CLAUDE_VOICES = { zh: CLAUDE_VOICE_ZH, en: CLAUDE_VOICE_EN };
 
-// 回答里"为耳朵写的"播报摘要标记：<<voice: 已完成…，记得…>>
-// 只朗读这个显式标记；抓不到就静默，避免把长正文或中途状态念出来。
+// 回答里"为耳朵写的"播报摘要标记。优先朗读这个显式标记；
+// 抓不到就播短兜底，避免长正文或中途状态被念出来。
 const VOICE_MARKER = /(?:<<\s*voice\s*:\s*([\s\S]*?)>>|<!--\s*voice\s*:\s*([\s\S]*?)-->)/gi;
 const MARKER_MAX_CHARS = 60;
+const NO_MARKER_FALLBACK = "已完成。";
 
 // 开场提示规则现在在共享模块 opening.mjs，Claude 和 Codex 共用。
 
@@ -132,7 +133,8 @@ function main() {
       speakDirect(marker);
       return;
     }
-    log("stop", { source: "no-marker-silent" });
+    log("stop", { source: "no-marker-fallback" });
+    speakDirect(NO_MARKER_FALLBACK);
     return;
   }
 }

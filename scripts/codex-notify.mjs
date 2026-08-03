@@ -6,8 +6,8 @@
 //
 // so the notification JSON is the LAST argv. This script:
 //   1) chains the user's ORIGINAL notify program (preserved at setup time), and
-//   2) on turn completion, speaks only the model's <<voice:>> marker, in the
-//      language-matched Codex voice. Missing marker stays silent.
+//   2) on turn completion, speaks the model's <<voice:>> marker, in the
+//      language-matched Codex voice. Missing marker gets a short fallback.
 //
 // Limitation vs hooks: notify only fires on completion — there is no opening cue.
 import { readFileSync } from "node:fs";
@@ -68,21 +68,23 @@ function main() {
   if (!isComplete) return;
 
   const marker = extractVoiceMarker(msg);
-  if (!marker) {
+  const spoken = marker || (cfg.noMarkerFallback === false ? "" : (cfg.noMarkerFallbackText || "已完成。"));
+  if (!spoken) {
     if (dry) {
       process.stdout.write(JSON.stringify({ notify: { chained: original.length ? original[0] : null, source: "no-marker-silent" } }, null, 2) + "\n");
     }
     return;
   }
 
-  const lang = detectLang(marker);
+  const lang = detectLang(spoken);
   const voice = resolveVoice(codexVoices(), lang);
+  const source = marker ? "marker" : "no-marker-fallback";
 
   if (dry) {
-    process.stdout.write(JSON.stringify({ notify: { chained: original.length ? original[0] : null, text: marker, voice, source: "marker" } }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ notify: { chained: original.length ? original[0] : null, text: spoken, voice, source } }, null, 2) + "\n");
     return;
   }
-  playDetached(process.execPath, [speakScript, "text", "--text", marker, "--full"], { VOICE_REPLY_VOICE: voice });
+  playDetached(process.execPath, [speakScript, "text", "--text", spoken, "--full"], { VOICE_REPLY_VOICE: voice });
 }
 
 main();
