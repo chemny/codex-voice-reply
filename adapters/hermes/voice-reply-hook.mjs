@@ -3,19 +3,18 @@
 //
 // Intended for ~/.hermes/config.yaml hooks:
 //   pre_llm_call  -> opening cue
-//   post_llm_call -> final voice marker or short fallback
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+//   post_llm_call -> final <<voice: ...>> result marker
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { detectLang, extractVoiceMarker, playOpening, resolveVoice, clampSpoken } from "../../scripts/opening.mjs";
+import { appendRotatingLog, detectContentLang, extractVoiceMarker, playOpening, resolveVoice, clampSpoken } from "../../scripts/opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "..", "..", "scripts", "speak.mjs");
 const LOG = join(homedir(), ".voice-reply", "hermes-hook.log");
 const MAX_RESULT_CHARS = 60;
-const NO_MARKER_FALLBACK = "已完成。";
 
 const HERMES_VOICES = {
   zh: process.env.VOICE_REPLY_HERMES_VOICE_ZH || "zh-CN-YunjianNeural",
@@ -23,12 +22,7 @@ const HERMES_VOICES = {
 };
 
 function log(obj) {
-  try {
-    mkdirSync(dirname(LOG), { recursive: true });
-    appendFileSync(LOG, JSON.stringify({ ts: new Date().toISOString(), ...obj }) + "\n");
-  } catch {
-    // Logging must never break a hook.
-  }
+  appendRotatingLog(LOG, obj);
 }
 
 function readStdinJson() {
@@ -113,7 +107,7 @@ function isUsefulVoiceText(text) {
 
 function speakDetached(text) {
   const spoken = clampSpoken(text, MAX_RESULT_CHARS);
-  const voice = resolveVoice(HERMES_VOICES, detectLang(spoken));
+  const voice = resolveVoice(HERMES_VOICES, detectContentLang(spoken));
   if (process.env.VOICE_REPLY_DRY_RUN === "1") {
     process.stdout.write(JSON.stringify({ announceArgs: ["text", "--text", spoken, "--full"], voice }, null, 2) + "\n");
     return;
@@ -149,8 +143,7 @@ function main() {
       speakDetached(marker);
       log({ event, did: "marker" });
     } else {
-      speakDetached(NO_MARKER_FALLBACK);
-      log({ event, did: "no-marker-fallback", hasReply: Boolean(reply) });
+      log({ event, did: "no-marker", hasReply: Boolean(reply) });
     }
   }
 }

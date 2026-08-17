@@ -1,13 +1,31 @@
 #!/usr/bin/env node
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { playOpening, playDetached, detectLang, resolveVoice, clampSpoken, promptText } from "./opening.mjs";
+import { playOpening, playDetached, detectLang, detectContentLang, resolveVoice, clampSpoken, promptText } from "./opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "speak.mjs");
 const logPath = join(homedir(), ".voice-reply", "hook.log");
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+const LOG_BACKUPS = 3;
+
+function rotateLog(path) {
+  try {
+    if (!existsSync(path) || statSync(path).size < MAX_LOG_BYTES) return;
+    const oldest = `${path}.${LOG_BACKUPS}`;
+    if (existsSync(oldest)) unlinkSync(oldest);
+    for (let i = LOG_BACKUPS - 1; i >= 1; i -= 1) {
+      const older = `${path}.${i}`;
+      const newer = `${path}.${i + 1}`;
+      if (existsSync(older)) renameSync(older, newer);
+    }
+    renameSync(path, `${path}.1`);
+  } catch {
+    // Rotation must never break a hook.
+  }
+}
 
 // Codex 的音色：中文女声 + 英文女声（config.json 的 voice / voiceEn），按语种自动选用。
 function codexVoices() {
@@ -31,11 +49,17 @@ function pickVoice(voices, lang) {
   return INHERITED_VOICE || resolveVoice(voices, lang);
 }
 
+function resultLanguage(text, config) {
+  return config.resultLang === "zh" || config.resultLang === "en"
+    ? config.resultLang
+    : detectContentLang(text);
+}
+
 const defaults = {
   enabled: true,
   start: true,
   stop: true,
-  stopMode: "summary",
+  stopMode: "marker",
   nodeEvents: false,
   nodeTools: ["apply_patch"],
   texts: {
@@ -43,17 +67,66 @@ const defaults = {
     Stop: "已完成，请查看结果。",
     StopEn: "Done. Check the result.",
     StopSummaryPrefix: "已完成。",
-    NoMarkerFallback: "已完成。",
     PreToolUse: "开始执行工具。",
     PostToolUse: "工具执行完成。",
   },
-  noMarkerFallback: true,
-  suppressMaintenance: true,
   maxResultChars: 60,
   maxSummarySentences: 1,
+  multiAgentMode: "root-only",
+  openingDedupMs: 3000,
+  resultLang: "auto",
+  suppressMaintenance: true,
 };
 
-// 显式播报标记：模型为耳朵写的那句。Codex 默认可本地摘要，标记只做精确覆盖。
+const SILENT_AGENT_MARKER = /(?:\[|<)voice-silent-subagent(?:\]|>)/i;
+
+// Codex hook payloads currently do not consistently expose a parent/root field.
+// Prefer explicit metadata when available, and use the task marker mandated by
+// the agent instructions as the stable fallback.
+function subAgentReason(input, config) {
+  if (config.multiAgentMode !== "root-only") return "";
+  const event = String(input.hook_event_name || "");
+  if (event === "SubagentStart" || event === "SubagentStop") return `event:${event}`;
+  if (input.is_subagent === true || input.is_child_agent === true) return "explicit-flag";
+  if (input.parent_agent_id || input.parent_session_id || input.parent_turn_id) return "parent-id";
+  const role = String(input.agent_role || input.role || input.agent_kind || "").toLowerCase();
+  if (/^(?:subagent|sub-agent|child|worker|reviewer)$/.test(role)) return `role:${role}`;
+  const taskPath = String(input.agent_task_path || input.task_path || process.env.CODEX_AGENT_TASK_PATH || "");
+  if (taskPath && taskPath !== "/root" && taskPath.startsWith("/root/")) return "task-path";
+  if (SILENT_AGENT_MARKER.test(String(input.prompt || ""))) return "prompt-marker";
+  // Some Codex builds pass the parent transcript to a worker while assigning
+  // that worker its own session_id. A mismatch is strong local sub-agent evidence.
+  const sessionId = String(input.session_id || "").toLowerCase();
+  const transcriptName = basename(String(input.transcript_path || "")).toLowerCase();
+  const transcriptSession = transcriptName.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0] || "";
+  if (sessionId && transcriptSession && transcriptSession !== sessionId) return "transcript-owner-mismatch";
+  return "";
+}
+
+// Hook invocations are separate processes, so keep the short opening debounce
+// in VOICE_HOME. This suppresses bursty duplicate submissions when several
+// agents start together; explicit sub-agent detection remains the primary rule.
+function claimOpening(config) {
+  const dedupMs = Number(config.openingDedupMs);
+  if (!Number.isFinite(dedupMs) || dedupMs <= 0) return true;
+  const statePath = join(homedir(), ".voice-reply", "opening-state.json");
+  const now = Date.now();
+  try {
+    if (existsSync(statePath)) {
+      const age = now - statSync(statePath).mtimeMs;
+      if (age >= 0 && age < dedupMs) return false;
+      try { unlinkSync(statePath); } catch { /* another hook may refresh it */ }
+    }
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(statePath, JSON.stringify({ ts: new Date(now).toISOString(), pid: process.pid }) + "\n", { flag: "wx" });
+    return true;
+  } catch {
+    // If another process wins the create race, treat this invocation as a duplicate.
+    return false;
+  }
+}
+
+// 显式播报标记 <<voice: ...>>：模型为耳朵写的那句。Stop 只播这个标记。
 const VOICE_MARKER = /(?:<<\s*voice\s*:\s*([\s\S]*?)>>|<!--\s*voice\s*:\s*([\s\S]*?)-->)/gi;
 
 function extractVoiceMarker(text) {
@@ -72,10 +145,6 @@ function isUsefulVoiceText(text) {
   return /[\u4e00-\u9fff]/.test(t) || /[A-Za-z0-9]/.test(t);
 }
 
-// Codex also fires global hooks for its own background memory-maintenance turns.
-// Those turns are not user-facing and must not produce opening or result audio.
-// An explicit voice marker still wins, so a real user-facing reply can override
-// this guard when necessary.
 const INTERNAL_MAINTENANCE_PATTERNS = [
   /^\s*Consolidation complete\.?\s*$/i,
   /^\s*Consolidated the new rollouts into\s*:/i,
@@ -106,6 +175,7 @@ function readStdinJson() {
 function log(event, data = {}) {
   try {
     mkdirSync(dirname(logPath), { recursive: true });
+    rotateLog(logPath);
     appendFileSync(logPath, JSON.stringify({
       ts: new Date().toISOString(),
       event,
@@ -257,6 +327,50 @@ function buildSummary(message, config) {
   return ranked[0]?.sentence || sentences[0] || "";
 }
 
+// Codex can emit Stop for internal continuation turns as well as the user's
+// final result. Never read tool-shaped payloads or weak intermediate notes.
+function intermediateStopReason(message) {
+  const text = String(message || "").trim();
+  if (!text) return "empty";
+  if (/```|<tool(?:_|-)?(?:call|result)|\b(?:tool_call|tool_result|function_call)\b/i.test(text)) return "tool-payload";
+  if (/^\s*(?:related files?|files?|references?|sources?|相关文件|参考资料|文件列表)\s*[:：]?\s*$/i.test(text)) return "section-label";
+  return "";
+}
+
+function resultShape(message) {
+  const text = String(message || "").trim();
+  if (/^\s*[\[{]/.test(text)) return "structured";
+  if (/^\s*(?:[-*+]\s+|\d+\.\s+).+(?:\n\s*(?:[-*+]\s+|\d+\.\s+).+)+/m.test(text)) return "list";
+  return "plain";
+}
+
+function completionFallback(message, config) {
+  return detectLang(String(message || "")) === "en"
+    ? (config.texts.StopEn || "Done. Check the result.")
+    : (config.texts.Stop || "任务已完成，请查看结果。");
+}
+
+function hasTerminalEvidence(text) {
+  const value = String(text || "");
+  const decision = /(?:需要你|请你|请选择|请确认|请回复|告诉我|是否继续|是否允许|can you confirm|please (?:choose|confirm|reply)|need your)/i;
+  const outcome = /(?:已完成|完成了|已经完成|已修复|修复了|已解决|解决了|已通过|通过了|已安装|已配置|已更新|已发布|已同步|检查完成|测试通过|问题是|原因是|无法完成|未能完成|仍然失败|still fails?|completed|finished|fixed|resolved|passed|installed|configured|updated|published|synced|could not complete|unable to complete)/i;
+  return decision.test(value) || outcome.test(value);
+}
+
+function buildTerminalSummary(message, config) {
+  const reason = intermediateStopReason(message);
+  if (reason) return { summary: "", reason };
+  const shape = resultShape(message);
+  if (shape === "structured") {
+    return { summary: completionFallback(message, config), reason: "" };
+  }
+  const summary = buildSummary(message, config);
+  if (!summary) return { summary: "", reason: "empty-summary" };
+  if (shape === "list") return { summary, reason: "" };
+  if (!hasTerminalEvidence(summary)) return { summary: "", reason: "no-terminal-evidence" };
+  return { summary, reason: "" };
+}
+
 function main() {
   const input = readStdinJson();
   const config = { ...defaults, ...loadConfig() };
@@ -268,10 +382,27 @@ function main() {
   }
 
   const event = input.hook_event_name || process.argv[2] || "";
-  log("hook", { hook_event_name: event, input_keys: Object.keys(input), has_last_assistant_message: Boolean(input.last_assistant_message) });
+  const suppressedAsSubAgent = subAgentReason(input, config);
+  log("hook", {
+    hook_event_name: event,
+    session_id: input.session_id || "",
+    turn_id: input.turn_id || "",
+    input_keys: Object.keys(input),
+    has_last_assistant_message: Boolean(input.last_assistant_message),
+    agent_scope: suppressedAsSubAgent ? "sub-agent" : "root-or-unknown",
+    transcript_file: input.transcript_path ? basename(String(input.transcript_path)) : "",
+  });
+  if (suppressedAsSubAgent) {
+    log("suppressed", { reason: suppressedAsSubAgent, hook_event_name: event });
+    return;
+  }
   if (event === "UserPromptSubmit" && config.start) {
     if (config.suppressMaintenance !== false && isInternalMaintenanceText(promptText(input))) {
       log("open", { source: "internal-maintenance-silent" });
+      return;
+    }
+    if (!claimOpening(config)) {
+      log("suppressed", { reason: "opening-dedup", hook_event_name: event });
       return;
     }
     // 走和 Claude 一样的通用开场规则（opening.mjs）：按语种 + 类型分类，后台、缓存。
@@ -287,20 +418,16 @@ function main() {
       // 模型主动写的播报标记：直接念，最准。音色按标记语种选（与 Claude 一致）。
       log("stop", { source: "marker" });
       // 硬截到 ≤60，但在句末/逗号边界收尾（保证 ≤60 且不切半句）。
-      speak(["text", "--text", clampSpoken(marker, config.maxResultChars), "--full"], pickVoice(voices, detectLang(marker)));
+      speak(["text", "--text", clampSpoken(marker, config.maxResultChars), "--full"], pickVoice(voices, resultLanguage(marker, config)));
     } else if (config.suppressMaintenance !== false && isInternalMaintenanceText(input.last_assistant_message)) {
       log("stop", { source: "internal-maintenance-silent" });
     } else if (config.stopMode === "summary" || config.stopMode === "auto") {
-      const summary = buildSummary(input.last_assistant_message, config);
+      const { summary, reason } = buildTerminalSummary(input.last_assistant_message, config);
       if (summary) {
         log("stop", { source: "local-summary" });
-        speak(["text", "--text", clampSpoken(summary, config.maxResultChars), "--full"], pickVoice(voices, detectLang(summary)));
-      } else if (config.noMarkerFallback !== false) {
-        const fallback = config.texts.NoMarkerFallback || config.texts.StopSummaryPrefix || "已完成。";
-        log("stop", { source: "no-marker-fallback" });
-        speak(["text", "--text", clampSpoken(fallback, config.maxResultChars), "--full"], pickVoice(voices, detectLang(fallback)));
+        speak(["text", "--text", clampSpoken(summary, config.maxResultChars), "--full"], pickVoice(voices, resultLanguage(summary, config)));
       } else {
-        log("stop", { source: "empty-summary-silent" });
+        log("stop", { source: "intermediate-silent", reason });
       }
     } else {
       log("stop", { source: "no-marker-silent" });

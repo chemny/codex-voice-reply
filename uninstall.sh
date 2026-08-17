@@ -9,5 +9,5 @@ node "$SKILL_DIR/scripts/manage-notify.mjs" remove "$SKILL_DIR" 2>/dev/null || t
 echo
 echo "Hooks (and the Codex notify fallback, if any) removed; backups saved as <file>.bak."
 echo "Config, cache, and logs in ~/.voice-reply were kept."
-echo "To remove them too:  rm -rf ~/.voice-reply"
+echo "To deactivate the data too, move ~/.voice-reply to a dated backup outside that path."
 echo "Restart your agent session to stop the voice."

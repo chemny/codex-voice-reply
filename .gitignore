@@ -16,5 +16,6 @@ Thumbs.db
 
 # Publisher reports
 publish-check-report.json
+se-quality-report.json
 smoke-test-report.json
 se-quality-report.json

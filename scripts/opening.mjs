@@ -8,7 +8,7 @@
 // 分类关键词和音色。可在 ~/.voice-reply/hooks.json 用 "lang":"zh"|"en" 锁定整段。
 //
 // 固定词已预合成成 mp3 缓存（按音色命名），开场直接本地播放、后台异步、跨平台。
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,24 @@ const speakScript = join(__dirname, "speak.mjs");
 const VOICE_HOME = process.env.VOICE_REPLY_HOME || join(homedir(), ".voice-reply");
 const CACHE_DIR = join(VOICE_HOME, "cache");
 const CONFIG = join(VOICE_HOME, "hooks.json");
+
+export function appendRotatingLog(path, record, maxBytes = 5 * 1024 * 1024, backups = 3) {
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    if (existsSync(path) && statSync(path).size >= maxBytes) {
+      const oldest = `${path}.${backups}`;
+      if (existsSync(oldest)) unlinkSync(oldest);
+      for (let i = backups - 1; i >= 1; i -= 1) {
+        const from = `${path}.${i}`;
+        if (existsSync(from)) renameSync(from, `${path}.${i + 1}`);
+      }
+      renameSync(path, `${path}.1`);
+    }
+    appendFileSync(path, JSON.stringify({ ts: new Date().toISOString(), ...record }) + "\n");
+  } catch {
+    // Logging must never break hooks or playback.
+  }
+}
 
 // 中英两套语言包：开场固定词 + 分类关键词。改词/调规则只改这里，三端同步。
 const PACKS = {
@@ -55,6 +73,15 @@ function configKey(key) {
 export function detectLang(text) {
   const forced = configKey("lang");
   if (forced === "zh" || forced === "en") return forced;
+  const s = String(text || "");
+  if (/[一-鿿]/.test(s)) return "zh";
+  if (/[A-Za-z]/.test(s)) return "en";
+  return configKey("defaultLang") === "zh" ? "zh" : "en";
+}
+
+// Result text selects its voice from the actual content. The configured lang
+// lock is opening-only; otherwise English results get a Chinese voice.
+export function detectContentLang(text) {
   const s = String(text || "");
   if (/[一-鿿]/.test(s)) return "zh";
   if (/[A-Za-z]/.test(s)) return "en";

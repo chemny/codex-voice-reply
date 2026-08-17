@@ -12,9 +12,7 @@ metadata:
 Codex Voice Reply gives a coding agent a short spoken voice:
 
 - **Opening cue** — the instant the user submits, a hook plays a quick acknowledgement matched to the message's language and type (zh: 我看看 / 好，这就做 / 收到; en: Let me look / On it / Got it). It fires before the model has read the message, so it can only acknowledge, never answer.
-- **Result reply** — when the turn finishes, Codex locally selects one concise result sentence: a conclusion, or **the decision the user must make (decision-first)** so they can answer and keep the loop going. It can contain the actual answer (对/错, a fact, "改好了，记得重启"), in a voice matched to the reply's language.
-- **No-marker fallback** — if no marker or usable local summary exists, the hook speaks a short safe fallback ("已完成。") and logs `no-marker-fallback`, rather than staying silent.
-- **Background maintenance guard** — Codex memory-consolidation turns are silent by default, so internal status such as `Consolidation complete` is never mistaken for a user-facing result. An explicit voice marker still overrides the guard.
+- **Result reply** — when the turn finishes, the model's own one-line summary is spoken: a conclusion, or **the decision the user must make (decision-first)** so they can answer and keep the loop going. It can contain the actual answer (对/错, a fact, "改好了，记得重启"), in a voice matched to the reply's language.
 
 Playback is local Edge TTS + `afplay`, fired in the background so hooks return in ~200ms and never block the agent.
 
@@ -26,12 +24,13 @@ codex-voice-reply/
   install.sh           # one-command bootstrap installer
   setup.sh             # one-command install (venv, cache, hooks)
   uninstall.sh         # remove hooks, restore backups
+  uninstall.ps1        # Windows-safe uninstall; optionally archive runtime data
   test.sh              # dry-run regression checks
   scripts/
     speak.mjs          # core: text → Edge TTS mp3 → cross-platform player
     opening.mjs        # shared opening-cue rule (classifier + cached playback)
-    claude-hook.mjs    # Claude Code hook entry (opening + result marker/fallback)
-    codex-hook.mjs     # Codex hook entry (opening + local summary/marker/fallback)
+    claude-hook.mjs    # Claude Code hook entry (opening + result marker only)
+    codex-hook.mjs     # Codex hook entry (opening + result marker only)
     codex-notify.mjs   # Codex `notify` fallback for builds without hooks (completion-only)
     manage-hooks.mjs   # register/remove hooks in settings.json / hooks.json
     manage-notify.mjs  # wire/unwire the Codex notify fallback in config.toml
@@ -50,7 +49,11 @@ Config + cache live in `~/.voice-reply/`:
   config.json   # voice / rate / volume (read by speak.mjs)
   hooks.json    # toggles + fixed texts (read by codex-hook.mjs)
   cache/        # pre-synthesized opening cue mp3s, named opening-<type>-<voice>.mp3
+  hook.log      # hook decisions and suppression reasons
+  playback.log  # synthesis/cache/player start, success, and failure events
 ```
+
+Both runtime logs rotate at 5 MB and keep up to three backups.
 
 ## Manual playback
 
@@ -67,37 +70,43 @@ node "$SKILL/scripts/speak.mjs" play --file <file.mp3>   # play an existing clip
 
 ## Automatic hooks
 
-**Claude Code** — `~/.claude/settings.json` registers `claude-hook.mjs` on `UserPromptSubmit` (opening cue) and `Stop` (result reply). On Stop it reads the transcript, extracts the last hidden `<!-- voice: ... -->` marker the model wrote, and speaks it. Legacy `<<voice: ...>>` markers remain supported. If no marker exists, it speaks the short fallback and logs `no-marker-fallback`.
+**Current Codex policy:** opening and completion use two separate gates.
+`UserPromptSubmit` controls the opening cue through root/sub-agent detection plus
+a short debounce; no voice marker exists yet at that point. Completion playback
+is marker-only: `<<voice: one-sentence result and next action>>` is an explicit
+authorization to speak directly to the user, not a generic completion summary.
+Only the root agent may issue it after aggregating required worker results.
+Stop events without a marker stay silent, including intermediate lists,
+structured payloads, tests, tool output, sub-agent results, and recognized
+background memory-maintenance turns.
 
-**Codex** — `~/.codex/hooks.json` registers `codex-hook.mjs` on the same events. Codex provides `last_assistant_message` directly. The hook selects a complete conclusion, error, or decision sentence locally, so normal turns require no extra model tokens. A hidden marker remains an optional exact override.
+In multi-agent runs, only the root agent may emit the marker. Tasks dispatched
+to sub-agents are prefixed with `[voice-silent-subagent]`; the Codex hook keeps
+those prompt and Stop events silent, while a short opening debounce suppresses
+bursty duplicate starts. The root agent aggregates all worker results and speaks
+once. If future Codex hook payloads expose parent/role metadata, the same filter
+uses those fields automatically.
 
-**Codex without hooks support** (older / some Windows builds) — fall back to Codex's `notify` mechanism: `node scripts/manage-notify.mjs add "$(pwd)"` points `notify` in `~/.codex/config.toml` at `codex-notify.mjs` (preserving and chaining any existing notify program). This speaks the hidden voice marker, or the short fallback when missing, on turn completion only — there is no opening cue via notify.
+**Claude Code** — `~/.claude/settings.json` registers `claude-hook.mjs` on `UserPromptSubmit` (opening cue) and `Stop` (result reply). On Stop it reads the transcript, extracts the last hidden `<!-- voice: ... -->` marker the model wrote, and speaks it. If absent, it stays silent. Legacy `<<voice: ...>>` markers remain supported.
+
+**Codex** — `~/.codex/hooks.json` registers `codex-hook.mjs` on the same events. Codex provides `last_assistant_message` directly. In the default `marker` mode, the hook speaks only the final voice marker; without one it stays silent. Root/sub-agent filtering runs first as a safety net, so a clearly identified worker remains silent even if it emits a marker by mistake.
+
+**Codex without hooks support** (older / some Windows builds) — fall back to Codex's `notify` mechanism: `node scripts/manage-notify.mjs add "$(pwd)"` points `notify` in `~/.codex/config.toml` at `codex-notify.mjs` (preserving and chaining any existing notify program). This speaks the hidden voice marker on turn completion only — there is no opening cue via notify.
 
 **OpenClaw** — experimental adapter in `adapters/openclaw`. It treats `message:received` as the opening event and `message:sent` as the result event, then reuses the same shared opening and marker extraction rules.
 
-**Hermes** — experimental adapter in `adapters/hermes`. Configure it as a Hermes shell hook: `pre_llm_call` plays the opening cue, and `post_llm_call` speaks the final hidden voice marker or the short fallback when no marker exists.
+**Hermes** — experimental adapter in `adapters/hermes`. Configure it as a Hermes shell hook: `pre_llm_call` plays the opening cue, and `post_llm_call` speaks only the final hidden voice marker.
 
-## Output contract
-
-Codex does not require an output marker for normal turns; it locally selects a
-complete conclusion, error, or decision sentence. For agents or situations that
-need an exact spoken override, the optional marker is:
+The model authorizes a completion reply by writing one final marker:
 
 ```
 <!-- voice: status + core info + next action -->
 ```
 
-Codex does not require this marker. Its local selector prioritizes sentences that
-ask the user to decide, choose, confirm, or answer. When a marker is used, it
-should still lead with what the user must do.
-
-Spoken audio is clamped to ≤60 characters. Codex falls back to its local summary
-when no marker exists; if no summary can be built, it speaks the safe fallback
-and logs `no-marker-fallback`. Claude Code and the experimental adapters
-prioritize the marker and use the same short fallback when no marker exists.
-Codex background memory-maintenance prompts and results are suppressed unless an
-explicit marker is present. Set `"suppressMaintenance": false` in
-`~/.voice-reply/hooks.json` only if those internal turns should be audible.
+Codex also supports the visible `<<voice: ...>>` form required by its agent
+instructions. The marker should lead with any decision or next action. All
+supported runtimes stay silent when no marker is present; there is no automatic
+sentence-selection fallback. Spoken audio is clamped to ≤60 characters.
 
 ## Per-agent voice
 
@@ -107,9 +116,11 @@ Claude Code speaks **male** and Codex speaks **female**, so you can tell them ap
 
 The opening rule lives in `scripts/opening.mjs` and is **shared by both agents and
 both languages**. `setup.sh` asks the user to pick a language on first install and
-writes it as `"lang": "zh"|"en"` in `~/.voice-reply/hooks.json` (a lock). When
-`lang` is set, that language is always used; remove `lang` to auto-detect each
-message (CJK → Chinese, else English). It then classifies the message
+writes it as `"lang": "zh"|"en"` in `~/.voice-reply/hooks.json` (an opening-only
+lock). When `lang` is set, that language is used for openings; remove it to
+auto-detect each message (CJK → Chinese, else English). Result voice selection
+is independent and defaults to `"resultLang": "auto"`, following the actual
+voice-marker text. It then classifies the message
 (question / instruction / other) and plays the matching phrase in that agent's
 voice for that language. Chinese: 我看看 / 好，这就做 / 收到. English: Let me look /
 On it / Got it. Edit the language packs once and both Claude and Codex pick it up.

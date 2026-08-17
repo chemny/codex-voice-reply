@@ -68,27 +68,51 @@ if [ ! -f "$VOICE_HOME/hooks.json" ]; then
   "enabled": true,
   "start": true,
   "stop": true,
-  "stopMode": "summary",
-  "noMarkerFallback": true,
-  "suppressMaintenance": true,
+  "stopMode": "marker",
   "maxResultChars": 60,
   "maxSummarySentences": 1,
   "nodeEvents": false,
+  "multiAgentMode": "root-only",
+  "openingDedupMs": 3000,
+  "resultLang": "auto",
+  "suppressMaintenance": true,
   "texts": {
     "UserPromptSubmit": "收到",
     "Stop": "已完成，请查看结果。",
-    "StopSummaryPrefix": "已完成。",
-    "NoMarkerFallback": "已完成。"
+    "StopSummaryPrefix": "已完成。"
   }
 }
 JSON
   echo "  wrote hooks.json"
 fi
 
-# 3b) First-run language choice — lock a language (or pick auto) --------------
+# Upgrade existing configs without replacing user-selected values. Version 1
+# used summary mode by default; version 2 is marker-only and multi-agent safe.
+node - "$VOICE_HOME/hooks.json" <<'NODE'
+const fs = require("fs");
+const p = process.argv[2];
+let c = {};
+try { c = JSON.parse(fs.readFileSync(p, "utf8")); } catch { process.exit(0); }
+const before = JSON.stringify(c);
+if (!Number.isFinite(c.schemaVersion) || c.schemaVersion < 2) {
+  if (!c.stopMode || c.stopMode === "summary") c.stopMode = "marker";
+  c.schemaVersion = 2;
+}
+if (c.multiAgentMode === undefined) c.multiAgentMode = "root-only";
+if (c.openingDedupMs === undefined) c.openingDedupMs = 3000;
+if (c.resultLang === undefined) c.resultLang = "auto";
+if (c.suppressMaintenance === undefined) c.suppressMaintenance = true;
+if (JSON.stringify(c) !== before) {
+  fs.copyFileSync(p, `${p}.pre-v2.bak`);
+  fs.writeFileSync(p, JSON.stringify(c, null, 2) + "\n");
+  console.log("  upgraded hooks.json to schemaVersion 2 (backup .pre-v2.bak)");
+}
+NODE
+
+# 3b) First-run opening language — lock it (or pick auto) ---------------------
 echo
 if [ -t 0 ]; then
-  echo "Which language should the voice use?"
+  echo "Which language should the opening cue use?"
   echo "  [1] 中文 (Chinese)   ← default"
   echo "  [2] English"
   echo "  [3] Auto — follow each message's language"
@@ -184,29 +208,59 @@ add_marker_rule() {
   local label="$2"
   mkdir -p "$(dirname "$file")"
   touch "$file"
-  if grep -q "$MARKER_SENTINEL" "$file"; then
-    echo "  $label rule already present"
-    return 0
-  fi
-  cat >> "$file" <<'EOF'
+  local rule_file
+  rule_file="$(mktemp)"
+  cat > "$rule_file" <<'EOF'
 
 ## Codex Voice Reply
 
-<!-- voice-reply result marker -->
-Codex Voice Reply can summarize final answers locally. When you need an exact
-spoken override, end the final reply with one hidden spoken-result marker on its
-own line:
+<!-- voice-reply result marker v2 -->
+Only the root agent that replies directly to the user may end its final reply
+with one hidden spoken-result marker on its own line:
 
 `<!-- voice: status + core info + next step -->`
 
 It MUST be 60 characters or fewer — if longer, rewrite it shorter. Keep it
-ear-friendly and free of code, paths, or secrets. When the result needs the user
-to decide, choose, confirm, or answer, lead with what the user must do.
+ear-friendly and free of code, paths, or secrets.
+When the result needs the user to decide, choose, confirm, or answer, lead with
+what the user must do.
 
-The hook has local-summary and no-marker fallback behavior, but the hidden marker
-is still the best way to force an exact spoken result.
+Sub-agents, parallel workers, and reviewers must never emit a voice marker or
+invoke voice playback. Prefix every task dispatched to a sub-agent with
+`[voice-silent-subagent]`; the root agent aggregates their results and speaks
+once at the end.
+<!-- /voice-reply result marker -->
 EOF
-  echo "  added $label rule"
+  node - "$file" "$rule_file" <<'NODE'
+const fs = require("fs");
+const target = process.argv[2];
+const rule = fs.readFileSync(process.argv[3], "utf8");
+const source = fs.readFileSync(target, "utf8");
+const marker = /<!-- voice-reply result marker(?: v\d+)? -->/;
+const found = marker.exec(source);
+let next;
+if (!found) {
+  next = source.replace(/\s*$/, "") + rule + "\n";
+} else {
+  const heading = source.lastIndexOf("## Codex Voice Reply", found.index);
+  const start = heading >= 0 ? heading : found.index;
+  const explicitEnd = source.indexOf("<!-- /voice-reply result marker -->", found.index);
+  let end;
+  if (explicitEnd >= 0) end = explicitEnd + "<!-- /voice-reply result marker -->".length;
+  else {
+    const nextHeading = source.indexOf("\n## ", found.index + found[0].length);
+    end = nextHeading >= 0 ? nextHeading : source.length;
+  }
+  next = source.slice(0, start).replace(/\s*$/, "") + rule + source.slice(end).replace(/^\s*/, "\n");
+}
+if (next !== source) {
+  fs.copyFileSync(target, `${target}.bak`);
+  fs.writeFileSync(target, next.replace(/\s*$/, "") + "\n");
+  console.log("updated");
+} else console.log("unchanged");
+NODE
+  rm -f "$rule_file"
+  echo "  $label rule installed/upgraded"
 }
 
 echo

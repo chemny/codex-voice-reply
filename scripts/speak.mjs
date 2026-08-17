@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -22,7 +22,26 @@ const defaults = {
 };
 
 const VOICE_HOME = process.env.VOICE_REPLY_HOME || join(homedir(), ".voice-reply");
+const PLAYBACK_LOG = join(VOICE_HOME, "playback.log");
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const WAIT_BUFFER = new Int32Array(new SharedArrayBuffer(4));
+
+function playbackLog(event, data = {}) {
+  try {
+    mkdirSync(VOICE_HOME, { recursive: true });
+    if (existsSync(PLAYBACK_LOG) && statSync(PLAYBACK_LOG).size >= MAX_LOG_BYTES) {
+      if (existsSync(`${PLAYBACK_LOG}.3`)) unlinkSync(`${PLAYBACK_LOG}.3`);
+      for (let i = 2; i >= 1; i -= 1) {
+        const from = `${PLAYBACK_LOG}.${i}`;
+        if (existsSync(from)) renameSync(from, `${PLAYBACK_LOG}.${i + 1}`);
+      }
+      renameSync(PLAYBACK_LOG, `${PLAYBACK_LOG}.1`);
+    }
+    appendFileSync(PLAYBACK_LOG, JSON.stringify({ ts: new Date().toISOString(), event, ...data }) + "\n");
+  } catch {
+    // Observability must never prevent speech.
+  }
+}
 
 function sleep(ms) {
   Atomics.wait(WAIT_BUFFER, 0, 0, ms);
@@ -282,7 +301,9 @@ function main() {
     if (!player.available) throw new Error("No audio player found. Install ffplay/mpv/mpg123, or set playCommand.");
     const release = acquireSpeechLock(config.queueTimeoutMs);
     try {
+      playbackLog("playback-start", { mode, player: player.command, source: "existing-file" });
       runChecked(player.command, player.buildArgs(options.file), player.command);
+      playbackLog("playback-success", { mode, player: player.command, source: "existing-file" });
     } finally {
       release();
     }
@@ -326,7 +347,10 @@ function main() {
   const release = acquireSpeechLock(config.queueTimeoutMs);
   try {
     if (cachedAudio && existsSync(cachedAudio)) {
+      playbackLog("cache-hit", { mode, player: player.command });
+      playbackLog("playback-start", { mode, player: player.command, source: "cache" });
       runChecked(player.command, player.buildArgs(cachedAudio), player.command);
+      playbackLog("playback-success", { mode, player: player.command, source: "cache" });
       return;
     }
     if (!edgeAvailable) {
@@ -335,6 +359,7 @@ function main() {
     const tempDir = mkdtempSync(join(tmpdir(), "voice-reply-"));
     const audioPath = join(tempDir, "speak.mp3");
     try {
+      playbackLog("synthesis-start", { mode, voice: config.voice });
       runChecked(edgeTtsCommand, [
         ...edgeTtsBaseArgs,
         "--voice", config.voice,
@@ -343,13 +368,16 @@ function main() {
         "--text", text,
         "--write-media", audioPath,
       ], "edge-tts");
+      playbackLog("synthesis-success", { mode, voice: config.voice });
       if (cachedAudio) {
         const cacheDir = dirname(cachedAudio);
         mkdirSync(cacheDir, { recursive: true });
         pruneSpeechCache(cacheDir);
         copyFileSync(audioPath, cachedAudio);
       }
+      playbackLog("playback-start", { mode, player: player.command, source: "synthesized" });
       runChecked(player.command, player.buildArgs(audioPath), player.command);
+      playbackLog("playback-success", { mode, player: player.command, source: "synthesized" });
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -361,6 +389,7 @@ function main() {
 try {
   main();
 } catch (error) {
+  playbackLog("playback-failed", { error: String(error?.message || error).slice(0, 500) });
   process.stderr.write(`${error.message}\n`);
   process.exit(1);
 }

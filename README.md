@@ -12,7 +12,7 @@ you stay in control.
 Works with **Claude Code** and **Codex**, with experimental adapters for
 **OpenClaw** and **Hermes**, **Chinese and English (pick one at setup,
 locked; or choose auto-per-message)**, with an instant opening cue, a decision-first result reply,
-per-agent voices, one-command setup, cross-platform playback (macOS / Linux /
+runtime-specific voices, Agent-directed setup, cross-platform playback (macOS / Linux /
 Windows), and offline cues via local [Edge TTS](https://github.com/rany2/edge-tts).
 
 ## Who Is This For?
@@ -20,7 +20,7 @@ Windows), and offline cues via local [Edge TTS](https://github.com/rany2/edge-tt
 This skill is designed for:
 
 - People who run long tasks in Claude Code / Codex and don't want to babysit the screen
-- People running multiple agents who want to tell by ear which one finished
+- People using Claude Code and Codex who want a distinct voice for each runtime
 - Anyone who wants a voice-feedback layer in their agent workflow
 
 ## What It Does
@@ -31,28 +31,25 @@ Two spoken moments per turn:
   matched to your message's **language and type**. It fires *before* the model
   reads your message, so it only acknowledges — never pretends to answer.
   Pre-synthesized and cached, so it plays offline in under a second.
-- **Result reply** — when the turn finishes, Codex locally selects a concise
-  conclusion, failure, or **decision it needs from you (decision-first)**. You
-  answer and the loop continues — turning a one-way announcement into a
-  back-and-forth. An explicit voice marker can override the selection when exact
-  wording matters.
+- **Result reply** — when the turn finishes, the model's one-line reply is spoken:
+  a conclusion, **or the decision it needs from you (decision-first)**. You answer
+  and the loop continues — turning a one-way announcement into a back-and-forth. It
+  can carry the real answer (yes/no, a number, "restart to apply"), in a voice matched
+  to the reply's language.
 
-Codex summarizes the final answer locally, so normal turns need no extra model
-instruction or output marker. An optional hidden `<!-- voice: ... -->` marker can
-override the local summary for an exact decision-first phrase. Legacy
-`<<voice: ...>>` markers remain supported. If neither a marker nor a useful local
-summary is available, the hook speaks a short safe fallback ("已完成。") and records
-`no-marker-fallback`, so missed markers do not turn into silence.
+Completion speech is marker-only. The root agent writes one final
+`<<voice: ...>>` marker (or the hidden `<!-- voice: ... -->` form on supported
+runtimes) to authorize playback. Without a marker, the turn stays silent.
 
 ## Core Capabilities
 
 | Capability | What It Helps You Do |
 |---|---|
 | Instant opening cue | Hear immediately that the agent has received the task and started working. |
-| Final voice reply | Speak a local result summary by default, with optional marker override and short fallback. |
+| Final voice reply | Speak only the final `voice` marker, so long answers or intermediate status do not get read aloud. |
 | Decision-first reminder | When the result needs approval, a choice, or a next step, hear that action first. |
 | Chinese + English voice | Use fixed Chinese, fixed English, or automatic language switching per message. |
-| Per-agent voice identity | Give Claude Code and Codex different voices so parallel agents are easy to tell apart. |
+| Runtime voice identity | Give Claude Code and Codex different voices while keeping their internal sub-agents silent. |
 
 ## Platform Compatibility
 
@@ -63,21 +60,22 @@ summary is available, the hook speaks a short safe fallback ("已完成。") and
 | OpenClaw | 🧪 Experimental (`adapters/openclaw`) |
 | Hermes | 🧪 Experimental (`adapters/hermes`, `~/.hermes/config.yaml` shell hooks) |
 
-Playback works on macOS (`afplay`) and Linux/Windows (`ffplay` / `mpv` / `mpg123`).
+Windows playback is tested. macOS (`afplay`) and Linux (`ffplay` / `mpv` /
+`mpg123`) are supported by implementation but have not been runtime-tested in
+this release.
 
 ## Install
 
-Send this to your Agent:
+Send this request to your current Agent:
 
 ```text
 Install this Skill for me:
 https://github.com/chemny/codex-voice-reply
 ```
 
-The Agent will choose the installation method for the current client, check
-Node.js, Python, Edge TTS, and audio-player dependencies, register the supported
-hooks, and verify that the Skill loads and plays a test sound. On Codex builds
-that require hook approval, it will tell you exactly which approval remains.
+The Agent detects the operating system, installs the dependencies, registers
+the supported hooks, runs the doctor, and verifies playback. Codex may ask you
+to approve the `UserPromptSubmit` and `Stop` hooks once through `/hooks`.
 
 ## Quick Start
 
@@ -90,16 +88,39 @@ The installer finishes with an audible test and a self-check report.
 
 ## Usage Examples
 
-Result speech normally comes from Codex's local, privacy-filtered sentence selector.
-An optional hidden `<!-- voice: ... -->` marker can override it with an exact phrase.
-Legacy `<<voice: ...>>` markers remain supported.
+Result speech comes only from an explicit final marker. Codex uses
+`<<voice: ...>>`; supported adapters may also use the hidden
+`<!-- voice: ... -->` form. No marker means no completion audio.
+
+### Multi-agent mode
+
+`multiAgentMode: "root-only"` is enabled by default. Only the root agent that
+replies directly to the user may announce the opening and final result. Tasks
+sent to workers are prefixed with `[voice-silent-subagent]`; worker, reviewer,
+and other internal events remain silent, and the root agent speaks once after
+aggregating their results. A 3-second opening debounce also suppresses bursty
+duplicate start cues.
+
+Recognized background memory-maintenance prompts are also kept silent by
+default, preventing internal consolidation turns from producing opening cues.
+
+Opening and completion deliberately use separate gates. An opening has no voice
+marker and is controlled by agent-scope detection plus debounce. For completion,
+`<<voice: ...>>` is authorization to speak directly to the user; only the root
+agent may issue it after aggregation. Hook-level worker filtering remains a
+safety net if a sub-agent emits a marker by mistake.
+
+Opening language and result voice are independent: `lang` locks only the
+opening cue, while `resultLang: "auto"` selects the result voice from marker
+content. `hook.log` records event decisions and `playback.log` records actual
+synthesis/player outcomes. Both rotate at 5 MB with up to three backups.
 
 ## How It Works
 
 | Moment | Who decides what to say | What you hear |
 |---|---|---|
 | You submit | hook classifies the prompt (`scripts/opening.mjs`, shared) | 我看看 / 好，这就做 / 收到 |
-| Agent finishes | hook selects a local summary, or the model writes `<!-- voice: … -->` | the real result; short fallback when missing |
+| Agent finishes | the **model** writes `<!-- voice: … -->` | the real result; silent when missing |
 
 The hook scripts only play audio. Playback is fired in the background so hooks
 return in ~200 ms and never block the agent. Spoken text is hard-capped at 60 chars.
@@ -114,17 +135,21 @@ codex-voice-reply/
 │   ├── claude-hook.mjs  # Claude Code hook entry
 │   ├── codex-hook.mjs   # Codex hook entry
 │   ├── codex-notify.mjs # Codex notify fallback
-│   └── manage-hooks.mjs # idempotent install/remove hooks (with backup)
+│   ├── manage-hooks.mjs # idempotent install/remove hooks (with backup)
+│   ├── manage-notify.mjs# add/remove Codex notify fallback
+│   └── doctor.mjs       # dependency, hook, cache, and playback checks
 ├── adapters/
 │   ├── openclaw/        # OpenClaw hook adapter
 │   └── hermes/          # Hermes shell-hook adapter
-├── install.sh / setup.sh / uninstall.sh / test.sh
+├── install.sh / install.ps1 / setup.sh
+├── uninstall.sh / uninstall.ps1 / test.sh
 ├── SKILL.md / README.md / README.zh.md / LICENSE / .gitignore
 └── agents/openai.yaml
 ```
 
 Runtime data lives in `~/.voice-reply/`: `config.json` (voice/rate/volume),
-`hooks.json` (toggles and fixed texts), `cache/` (opening cues).
+`hooks.json` (toggles and fixed texts), `cache/` (opening cues), `hook.log`
+(event decisions), and `playback.log` (synthesis/player outcomes).
 
 ## Requirements
 
@@ -159,10 +184,8 @@ OpenClaw and Hermes adapters reuse the same shared rules as Claude Code and
 Codex:
 
 - opening cue: classify the user's prompt and speak a short acknowledgement;
-- result reply: locally select the conclusion or decision sentence;
-- optional hidden marker: override the local selection with an exact phrase;
-- no usable summary: speak a short fallback and log `no-marker-fallback`.
-- Codex background memory-maintenance turns: stay silent unless an explicit voice marker is present (`suppressMaintenance` defaults to `true`).
+- result reply: speak only an explicit final voice marker;
+- missing marker: stay silent.
 
 OpenClaw files live in `adapters/openclaw`. Hermes files live in
 `adapters/hermes`; its hook command is configured through `~/.hermes/config.yaml`.

@@ -7,11 +7,11 @@
 //   - Codex 在 Stop 时直接给 last_assistant_message；
 //   - Claude Code 只给 transcript_path（一个 JSONL），需要自己从末尾回溯
 //     找到最后一条带 text 的 assistant 消息，拼成正文再交给 codex-hook。
-import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { playOpening, playDetached, detectLang, resolveVoice, clampSpoken } from "./opening.mjs";
+import { appendRotatingLog, playOpening, playDetached, detectContentLang, resolveVoice, clampSpoken } from "./opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "speak.mjs");
@@ -19,12 +19,7 @@ const LOG_PATH = join(homedir(), ".voice-reply", "hook.log");
 
 // 轻量日志，便于排查（与 codex-hook 对称）。失败静默，绝不影响主流程。
 function log(event, extra) {
-  try {
-    mkdirSync(dirname(LOG_PATH), { recursive: true });
-    appendFileSync(LOG_PATH, JSON.stringify({ ts: new Date().toISOString(), agent: "claude", event, ...extra }) + "\n");
-  } catch {
-    // ignore
-  }
+  appendRotatingLog(LOG_PATH, { agent: "claude", event, ...extra });
 }
 
 // Claude Code 专用音色：中文男声 + 英文男声（保持同一"性别人设"，听感一致）。
@@ -107,7 +102,7 @@ function isUsefulVoiceText(text) {
 
 // 直接朗读标记内容，绕过打分逻辑。音色按标记文字的语种选（中文男声 / 英文男声）。
 function speakDirect(text) {
-  const voice = resolveVoice(CLAUDE_VOICES, detectLang(text));
+  const voice = resolveVoice(CLAUDE_VOICES, detectContentLang(text));
   playDetached(process.execPath, [speakScript, "text", "--text", text, "--full"], {
     VOICE_REPLY_VOICE: voice,
   });
@@ -124,7 +119,12 @@ function main() {
     return;
   }
 
-  if (event === "Stop" || event === "SubagentStop") {
+  if (event === "SubagentStart" || event === "SubagentStop") {
+    log("suppressed", { reason: `event:${event}` });
+    return;
+  }
+
+  if (event === "Stop") {
     const message = lastAssistantText(input.transcript_path);
     const marker = extractVoiceMarker(message);
     if (marker) {

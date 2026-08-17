@@ -6,8 +6,8 @@
 //
 // so the notification JSON is the LAST argv. This script:
 //   1) chains the user's ORIGINAL notify program (preserved at setup time), and
-//   2) on turn completion, speaks the model's <<voice:>> marker, in the
-//      language-matched Codex voice. Missing marker gets a short fallback.
+//   2) on turn completion, speaks only the model's <<voice:>> marker, in the
+//      language-matched Codex voice. Missing marker stays silent.
 //
 // Limitation vs hooks: notify only fires on completion — there is no opening cue.
 import { readFileSync } from "node:fs";
@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { extractVoiceMarker, detectLang, resolveVoice } from "./opening.mjs";
+import { extractVoiceMarker, detectContentLang, resolveVoice } from "./opening.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const speakScript = join(__dirname, "speak.mjs");
@@ -68,23 +68,24 @@ function main() {
   if (!isComplete) return;
 
   const marker = extractVoiceMarker(msg);
-  const spoken = marker || (cfg.noMarkerFallback === false ? "" : (cfg.noMarkerFallbackText || "已完成。"));
-  if (!spoken) {
+  if (!marker) {
     if (dry) {
       process.stdout.write(JSON.stringify({ notify: { chained: original.length ? original[0] : null, source: "no-marker-silent" } }, null, 2) + "\n");
     }
     return;
   }
 
-  const lang = detectLang(spoken);
+  const hooks = readJson(join(VOICE_HOME, "hooks.json"));
+  const lang = hooks.resultLang === "zh" || hooks.resultLang === "en"
+    ? hooks.resultLang
+    : detectContentLang(marker);
   const voice = resolveVoice(codexVoices(), lang);
-  const source = marker ? "marker" : "no-marker-fallback";
 
   if (dry) {
-    process.stdout.write(JSON.stringify({ notify: { chained: original.length ? original[0] : null, text: spoken, voice, source } }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ notify: { chained: original.length ? original[0] : null, text: marker, voice, source: "marker" } }, null, 2) + "\n");
     return;
   }
-  playDetached(process.execPath, [speakScript, "text", "--text", spoken, "--full"], { VOICE_REPLY_VOICE: voice });
+  playDetached(process.execPath, [speakScript, "text", "--text", marker, "--full"], { VOICE_REPLY_VOICE: voice });
 }
 
 main();

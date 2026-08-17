@@ -28,6 +28,11 @@ function cmdExists(c) {
   return r.status === 0 && r.stdout.trim().length > 0;
 }
 
+function readJson(path) {
+  try { return { value: JSON.parse(readFileSync(path, "utf8")), error: "" }; }
+  catch (error) { return { value: null, error: String(error?.message || error) }; }
+}
+
 console.log("Codex Voice Reply doctor\n");
 
 console.log("Runtime");
@@ -54,8 +59,26 @@ const player = players.find(cmdExists);
 player ? PASS(`player: ${player}`) : FAIL("no audio player found", "install ffplay (ffmpeg), mpv, or mpg123");
 
 console.log("\nConfig & cache");
-existsSync(join(VOICE_HOME, "config.json")) ? PASS("config.json") : WARN("config.json missing", "rerun the installer");
-existsSync(join(VOICE_HOME, "hooks.json")) ? PASS("hooks.json") : WARN("hooks.json missing", "rerun the installer");
+const configPath = join(VOICE_HOME, "config.json");
+const hooksPath = join(VOICE_HOME, "hooks.json");
+if (!existsSync(configPath)) WARN("config.json missing", "rerun the installer");
+else {
+  const parsed = readJson(configPath);
+  parsed.value ? PASS("config.json valid") : FAIL(`config.json invalid: ${parsed.error}`, "restore its backup or rerun the installer");
+}
+let hooksConfig = null;
+if (!existsSync(hooksPath)) WARN("hooks.json missing", "rerun the installer");
+else {
+  const parsed = readJson(hooksPath);
+  if (!parsed.value) FAIL(`hooks.json invalid: ${parsed.error}`, "restore its backup or rerun the installer");
+  else {
+    hooksConfig = parsed.value;
+    PASS("hooks.json valid");
+    hooksConfig.stopMode === "marker" ? PASS("completion mode: marker-only") : WARN(`completion mode is ${hooksConfig.stopMode || "unset"}`, "set stopMode to marker");
+    hooksConfig.multiAgentMode === "root-only" ? PASS("multi-agent mode: root-only") : WARN(`multi-agent mode is ${hooksConfig.multiAgentMode || "unset"}`, "set multiAgentMode to root-only");
+    ["auto", "zh", "en"].includes(hooksConfig.resultLang) ? PASS(`result language: ${hooksConfig.resultLang}`) : WARN("resultLang invalid or missing", "set resultLang to auto, zh, or en");
+  }
+}
 const cacheDir = join(VOICE_HOME, "cache");
 const clips = existsSync(cacheDir) ? readdirSync(cacheDir).filter((f) => f.endsWith(".mp3")) : [];
 const openingClips = clips.filter((f) => f.startsWith("opening-"));
@@ -65,6 +88,27 @@ PASS(`${speechClips.length} result speech cache clips`);
 existsSync(join(VOICE_HOME, "speech.lock"))
   ? WARN("speech queue is currently busy", "wait for playback to finish; stale locks self-heal after 2 minutes")
   : PASS("speech queue ready");
+
+const playbackLog = join(VOICE_HOME, "playback.log");
+if (!existsSync(playbackLog)) WARN("playback.log not created yet", "play one test phrase");
+else {
+  const events = readFileSync(playbackLog, "utf8").split("\n").filter(Boolean).slice(-300).flatMap((line) => {
+    try { return [JSON.parse(line)]; } catch { return []; }
+  });
+  const terminal = events.filter((e) => e.event === "playback-success" || e.event === "playback-failed").at(-1);
+  if (!terminal) WARN("playback.log has no completed playback", "play one test phrase");
+  else if (terminal.event === "playback-failed") FAIL(`latest playback failed: ${terminal.error || "unknown error"}`, "inspect playback.log and audio dependencies");
+  else PASS("latest playback succeeded");
+}
+
+console.log("\nAgent voice rule");
+for (const [label, file] of [["Codex", join(HOME, ".codex", "AGENTS.md")], ["Claude Code", join(HOME, ".claude", "CLAUDE.md")]]) {
+  if (!existsSync(file)) { WARN(`${label}: instruction file missing`, "rerun setup and install the root-only marker rule"); continue; }
+  const text = readFileSync(file, "utf8");
+  const rootOnly = /voice-reply result marker v2|Only the root agent|只有[^\n]*主 Agent/.test(text);
+  const childSilent = /voice-silent-subagent/.test(text);
+  rootOnly && childSilent ? PASS(`${label}: root-only voice rule found`) : WARN(`${label}: voice rule is missing or outdated`, "rerun setup and upgrade the marker rule");
+}
 
 console.log("\nHook registration");
 function checkHooks(label, file, scriptName) {
